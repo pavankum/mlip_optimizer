@@ -1,0 +1,7 @@
+{
+    "data_file": "../../01_download_datasets/outputs/optimization/OpenFF_NSP_Optimization_Set_1_Nitrogen_v4_0_20260303T235256/OpenFF_NSP_Optimization_Set_1_Nitrogen_v4_0.parquet",
+    "output_directory": "../outputs/optimized",
+    "potential": {"type": "openff", "forcefield": "openff-2.3.0.offxml"},
+    "max_molecules": 100000,
+    "max_conformers_per_molecule": 10
+}

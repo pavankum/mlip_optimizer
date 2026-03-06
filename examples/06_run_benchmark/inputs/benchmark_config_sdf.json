@@ -1,0 +1,12 @@
+{
+    "data_file": "../../01_download_datasets/outputs/optimization/OpenFF_NSP_Optimization_Set_1_Nitrogen_v4_0_20260303T235256/OpenFF_NSP_Optimization_Set_1_Nitrogen_v4_0.sdf",
+    "output_directory": "../outputs",
+    "potentials": [
+        {"type": "openff", "forcefield": "openff-2.3.0.offxml"},
+        {"type": "openmm_ml", "potential_name": "aceff-2.0"}
+    ],
+    "max_molecules": 5,
+    "bond_threshold": 0.1,
+    "angle_threshold": 5.0,
+    "torsion_threshold": 40.0
+}

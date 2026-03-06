@@ -1,0 +1,52 @@
+name: mlip_optimizer
+channels:
+  - conda-forge
+  - conda-forge/label/openmm_rc
+  - openeye
+  - nodefaults
+dependencies:
+  # Python
+  - python
+
+  # Core scientific libraries
+  - numpy
+  - pyarrow
+  - rdkit
+  - ase
+
+  # OpenMM and force fields
+  - openmm ==8.5.0beta
+  - openmmforcefields
+  - openff-toolkit
+  - openff-forcefields
+  - openff-qcsubmit
+  - openff-yammbs
+  - openeye-toolkits
+  - cmiles
+  - qcfractal
+
+  # Machine learning potentials
+  - torchmd-net
+
+  # Code quality
+  - black
+  - isort
+  - flake8
+
+  # Utilities
+  - tqdm
+  - click
+  - tabulate
+  - cairosvg
+
+  # Notebook and visualization
+  - jupyter
+  - marimo
+
+  # Package management
+  - pip
+
+  - pip:
+      # Machine learning potentials (pip-only)
+      - mace-torch
+      - git+https://github.com/openmm/openmm-ml.git@main

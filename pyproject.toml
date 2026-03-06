@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlip-optimizer"
+version = "0.1.0"
+description = "Molecular geometry optimization using ML interatomic potentials via OpenMM-ML"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "openff-toolkit>=0.14.0",
+    "openmm",
+    "openmmml",
+    "rdkit",
+    "numpy",
+]
+
+[project.optional-dependencies]
+ase = [
+    "ase",
+    "torch",
+]
+orb = [
+    "mlip-optimizer[ase]",
+    "orb-models",
+]
+egret = [
+    "mlip-optimizer[ase]",
+    "mace-torch",
+]
+viz = [
+    "matplotlib",
+    "cairosvg",
+    "Pillow",
+    "tabulate",
+    "tqdm",
+]
+qcarchive = [
+    "qcportal",
+    "openff-qcsubmit",
+    "pyarrow",
+    "pandas",
+    "tqdm",
+]
+all = [
+    "mlip-optimizer[orb,egret,viz,qcarchive]",
+]
+dev = [
+    "mlip-optimizer[all]",
+    "pytest",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

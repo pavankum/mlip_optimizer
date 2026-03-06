@@ -143,6 +143,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+<<<<<<< HEAD
+=======
+.vscode/settings.json
+>>>>>>> e72b0c4 (add files for optimization)
 
 # Spyder project settings
 .spyderproject
@@ -205,3 +209,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+<<<<<<< HEAD
+=======
+
+>>>>>>> e72b0c4 (add files for optimization)
