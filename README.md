@@ -50,6 +50,8 @@ aceff_result = aceff.optimize(mol)
 
 **Supported OpenMM-ML potentials:**
 
+NEED TO VERIFY SOME OF THESE ON CHARGE SUPPORT
+
 | Category | Potential(s) | Charged Molecules | Notes |
 |----------|-------------|-------------------|-------|
 | `anipotential` | `ani1ccx`, `ani2x` | ❌ No | Neutral only (ANI training sets) |
