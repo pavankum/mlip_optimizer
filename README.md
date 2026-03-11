@@ -50,13 +50,12 @@ aceff_result = aceff.optimize(mol)
 
 **Supported OpenMM-ML potentials:**
 
-NEED TO VERIFY SOME OF THESE ON CHARGE SUPPORT
+NEED TO VERIFY SOME OF THESE ON CHARGE SUPPORT - Yes and No list seems fine, others lack information
 
 | Category | Potential(s) | Charged Molecules | Notes |
 |----------|-------------|-------------------|-------|
 | `anipotential` | `ani1ccx`, `ani2x` | ❌ No | Neutral only (ANI training sets) |
 | `aimnet2potential` | `aimnet2` | ✅ Yes | Trained on neutral + charged molecules |
-| `asepotential` | `ase` | N/A | Framework wrapper; depends on underlying calculator |
 | `deepmdpotential` | `deepmd` | ⚠️ Depends | Depends on model weights; framework supports charges |
 | `fennixpotential` | `fennix` | ⚠️ Depends | Base model; charge support depends on weights |
 | | `fennix-bio1-small` | ⚠️ Partial | Bio-focused; limited charge support |
