@@ -45,8 +45,11 @@ qcarchive = [
     "pandas",
     "tqdm",
 ]
+torsion = [
+    "yammbs",
+]
 all = [
-    "mlip-optimizer[orb,egret,viz,qcarchive]",
+    "mlip-optimizer[orb,egret,viz,qcarchive,torsion]",
 ]
 dev = [
     "mlip-optimizer[all]",

@@ -1,11 +1,14 @@
-"""Molecular geometry analysis from OpenFF Molecule conformers.
+"""Molecular geometry analysis and manipulation.
 
 Computes bond lengths, bond angles, and proper torsion (dihedral) angles
-from the 3D coordinates of a molecule's conformers.
+from the 3D coordinates of a molecule's conformers.  Also provides
+utilities for computing and setting dihedral angles on raw coordinate
+arrays, useful for torsion-scan workflows.
 """
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -220,3 +223,106 @@ def compute_geometry_diffs(
             torsion_diffs[key] = abs(normalized)
 
     return bond_diffs, angle_diffs, torsion_diffs
+
+
+# ---------------------------------------------------------------------------
+# Dihedral manipulation utilities
+# ---------------------------------------------------------------------------
+
+
+def compute_dihedral(
+    positions: np.ndarray,
+    indices: tuple[int, int, int, int],
+) -> float:
+    """Compute the dihedral angle for four atom indices.
+
+    Parameters
+    ----------
+    positions : np.ndarray, shape (N, 3)
+        Cartesian coordinates in Angstroms.
+    indices : tuple of four ints
+        Atom indices ``(i, j, k, l)`` defining the dihedral.
+
+    Returns
+    -------
+    float
+        Dihedral angle in degrees, in the range ``(-180, 180]``.
+    """
+    i, j, k, l = indices
+    b1 = positions[j] - positions[i]
+    b2 = positions[k] - positions[j]
+    b3 = positions[l] - positions[k]
+    n1 = np.cross(b1, b2)
+    n2 = np.cross(b2, b3)
+    m1 = np.cross(n1, b2 / np.linalg.norm(b2))
+    return float(np.degrees(np.arctan2(np.dot(m1, n2), np.dot(n1, n2))))
+
+
+def _rotation_matrix(axis: np.ndarray, angle_rad: float) -> np.ndarray:
+    """Rodrigues' rotation matrix around *axis* by *angle_rad*."""
+    axis = axis / np.linalg.norm(axis)
+    K = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0],
+    ])
+    return np.eye(3) + np.sin(angle_rad) * K + (1 - np.cos(angle_rad)) * K @ K
+
+
+def set_dihedral(
+    positions: np.ndarray,
+    indices: tuple[int, int, int, int],
+    target_deg: float,
+    mol: Molecule,
+) -> np.ndarray:
+    """Return a copy of *positions* with the dihedral set to *target_deg*.
+
+    Atoms on the far side of the central bond (the *k*-side) are rotated
+    to achieve the target angle.  The molecular connectivity in *mol* is
+    used to determine which atoms to rotate via BFS from atom *k*
+    (excluding atom *j*).
+
+    Parameters
+    ----------
+    positions : np.ndarray, shape (N, 3)
+        Cartesian coordinates in Angstroms.
+    indices : tuple of four ints
+        Atom indices ``(i, j, k, l)`` defining the dihedral.
+    target_deg : float
+        Desired dihedral angle in degrees.
+    mol : openff.toolkit.Molecule
+        Molecule whose bond connectivity is used to identify the
+        rotating fragment.
+
+    Returns
+    -------
+    np.ndarray, shape (N, 3)
+        New coordinates with the dihedral set to *target_deg*.
+    """
+    current = compute_dihedral(positions, indices)
+    delta = np.radians(target_deg - current)
+
+    i, j, k, l = indices
+    R = _rotation_matrix(positions[k] - positions[j], delta)
+
+    # BFS from k, excluding j, to find atoms on the k-side of the bond
+    bonds: dict[int, set[int]] = {a.molecule_atom_index: set() for a in mol.atoms}
+    for bond in mol.bonds:
+        bonds[bond.atom1_index].add(bond.atom2_index)
+        bonds[bond.atom2_index].add(bond.atom1_index)
+
+    visited: set[int] = set()
+    queue: deque[int] = deque([k])
+    visited.add(k)
+    while queue:
+        node = queue.popleft()
+        for nb in bonds[node]:
+            if nb not in visited and nb != j:
+                visited.add(nb)
+                queue.append(nb)
+
+    new_pos = positions.copy()
+    origin = positions[j]
+    for idx in visited:
+        new_pos[idx] = origin + R @ (positions[idx] - origin)
+    return new_pos

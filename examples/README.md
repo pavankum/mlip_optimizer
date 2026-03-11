@@ -78,3 +78,12 @@ python examples/07_single_model_benchmark/optimize_single_model.py \
 python examples/07_single_model_benchmark/compare_models.py \
     examples/07_single_model_benchmark/inputs/compare_config.json
 ```
+
+### 08_torsion_scan
+
+Constrained torsion (dihedral) scan using yammbs. Rotates a selected dihedral through an angle grid, minimizes at each point with one or more methods, and produces a CSV of energies plus a PDF plot. Requires the `torsion` extra (`pip install mlip-optimizer[torsion]`).
+
+```bash
+python examples/08_torsion_scan/torsion_scan.py \
+    examples/08_torsion_scan/inputs/torsion_scan_config.json
+```

@@ -37,9 +37,11 @@ from mlip_optimizer.comparison import (
 )
 from mlip_optimizer.geometry import (
     ConformerGeometry,
+    compute_dihedral,
     compute_geometry_diffs,
     compute_rmsd,
     get_conformer_geometry,
+    set_dihedral,
 )
 from mlip_optimizer.optimizers._base import GeometryOptimizer
 from mlip_optimizer.optimizers.openff import OpenFFOptimizer
@@ -62,11 +64,19 @@ try:
 except ImportError:
     pass
 
+# Torsion scan support is optional; requires: pip install mlip-optimizer[torsion]
+try:
+    from mlip_optimizer.torsion import TorsionScanResult, run_torsion_scan
+except ImportError:
+    pass
+
 __all__ = [
     "ConformerGeometry",
     "get_conformer_geometry",
     "compute_rmsd",
     "compute_geometry_diffs",
+    "compute_dihedral",
+    "set_dihedral",
     "GeometryOptimizer",
     "OpenFFOptimizer",
     "OpenMMMLOptimizer",
@@ -78,4 +88,6 @@ __all__ = [
     "QMComparisonMetrics",
     "QMComparisonResult",
     "evaluate_against_qm",
+    "TorsionScanResult",
+    "run_torsion_scan",
 ]

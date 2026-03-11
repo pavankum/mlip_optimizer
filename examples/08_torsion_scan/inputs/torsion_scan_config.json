@@ -1,0 +1,13 @@
+{
+    "smiles": "NC=O",
+    "force_field": "openff-2.1.0",
+    "dihedral_index": 0,
+    "angle_start": -180,
+    "angle_stop": 180,
+    "angle_step": 15,
+    "methods": [
+        {"method": "openmm_torsion_restrained", "restraint_k": 1.0},
+        {"method": "openmm_torsion_atoms_frozen", "restraint_k": 1.0}
+    ],
+    "output_directory": "../outputs"
+}
