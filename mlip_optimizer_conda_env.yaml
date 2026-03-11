@@ -26,6 +26,7 @@ dependencies:
 
   # Machine learning potentials
   - torchmd-net
+  - triton
 
   # Code quality
   - black
@@ -50,3 +51,5 @@ dependencies:
       - mace-torch
       - git+https://github.com/openmm/openmm-ml.git@main
       - git+https://github.com/openforcefield/yammbs.git@main
+      - aimnet
+      - huggingface_hub
