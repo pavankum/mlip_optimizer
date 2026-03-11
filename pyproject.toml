@@ -7,7 +7,7 @@ name = "mlip-optimizer"
 version = "0.1.0"
 description = "Molecular geometry optimization using ML interatomic potentials via OpenMM-ML"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 
 dependencies = [
