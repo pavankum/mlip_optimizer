@@ -1,0 +1,11 @@
+{
+    "data_files": [
+        "../../01_download_datasets/outputs/optimization/OpenFF_NSP_Optimization_Set_1_Nitrogen_v4_0_20260306T142716/OpenFF_NSP_Optimization_Set_1_Nitrogen_v4_0.parquet",
+        "../../01_download_datasets/outputs/optimization/OpenFF_NSP_Optimization_Set_1_Phosphorus_v4_0_20260306T142948/OpenFF_NSP_Optimization_Set_1_Phosphorus_v4_0.parquet",
+        "../../01_download_datasets/outputs/optimization/OpenFF_NSP_Optimization_Set_1_Sulfur_v4_0_20260306T142817/OpenFF_NSP_Optimization_Set_1_Sulfur_v4_0.parquet"
+    ],
+    "output_directory": "../outputs/optimized",
+    "potential": {"type": "openmm_ml", "potential_name": "fennix-bio1-medium-finetune-ions"},
+    "max_molecules": 100000,
+    "max_conformers_per_molecule": 10
+}
