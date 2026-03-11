@@ -259,6 +259,7 @@ def write_batch_sdf(
     molecule_records: list,
     optimized_results: dict[str, list[Molecule]],
     output_dir: str | Path,
+    file_suffix: str = "",
 ) -> dict[str, Path]:
     """Write one SDF per potential, containing all molecules in input order.
 
@@ -274,6 +275,9 @@ def write_batch_sdf(
         (parallel to *molecule_records*).
     output_dir : str or Path
         Output directory (created if needed).
+    file_suffix : str, optional
+        Extra string appended to the filename before ``.sdf``
+        (e.g. ``"_20260311T143022"``).
 
     Returns
     -------
@@ -291,7 +295,7 @@ def write_batch_sdf(
             .replace(".", "_")
             .replace(":", "_")[:30]
         )
-        sdf_path = output_dir / f"optimized_{safe_name}.sdf"
+        sdf_path = output_dir / f"optimized_{safe_name}{file_suffix}.sdf"
         writer = Chem.SDWriter(str(sdf_path))
         writer.SetKekulize(False)
 

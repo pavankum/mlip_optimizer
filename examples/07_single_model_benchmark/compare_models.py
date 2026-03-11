@@ -7,7 +7,7 @@ summaries and a PDF report.
 
 Phase 2 of a two-phase workflow:
 
-1. Read QM reference data (parquet or SDF) -- same file used in Phase 1
+1. Read QM reference data (parquet or SDF) -- same files used in Phase 1
 2. Discover optimized SDF files in the output directory
 3. Compare each model vs QM (RMSD, bond/angle/torsion differences)
 4. Write CSV (detail + summary) and PDF report
@@ -23,11 +23,14 @@ JSON configuration
 ::
 
     {
-        "data_file": "path/to/input.parquet",
+        "data_files": [
+            "path/to/nitrogen.parquet",
+            "path/to/sulfur.parquet"
+        ],
         "optimized_directory": "../outputs/optimized",
         "output_directory": "../outputs/comparison",
-        "max_molecules": 2,
-        "max_conformers_per_molecule": 3,
+        "max_molecules": 100000,
+        "max_conformers_per_molecule": 10,
         "bond_threshold": 0.1,
         "angle_threshold": 5.0,
         "torsion_threshold": 40.0
@@ -35,10 +38,13 @@ JSON configuration
 
 Fields:
 
-- **data_file** *(required)*: Same parquet or SDF used during Phase 1.
+- **data_files** *(required)*: List of parquet or SDF files -- same ones
+  used during Phase 1. A single string ``"data_file"`` is also accepted.
 - **optimized_directory** *(required)*: Directory containing the
-  ``optimized_*.sdf`` files produced by Phase 1.
+  dataset subdirectories with ``optimized_*.sdf`` files produced by
+  Phase 1 (one subdirectory per input data file).
 - **output_directory** *(required)*: Where to write CSV and PDF reports.
+  A subdirectory is created per dataset.
 - **max_molecules** / **max_conformers_per_molecule** *(optional)*:
   Must match the values used during Phase 1 so molecule ordering is
   identical.
@@ -86,133 +92,169 @@ def main(config_path: str | Path) -> None:
     config = load_json_config(
         config_path,
         required_keys=(
-            "data_file",
             "optimized_directory",
             "output_directory",
         ),
     )
 
-    # --- 1. Load QM reference ---
-    data_file = resolve_path(config["data_file"], config_path)
-    records = load_records(
-        data_file,
-        max_molecules=config.get("max_molecules"),
-        max_conformers_per_molecule=config.get("max_conformers_per_molecule"),
-    )
-    logger.info(
-        "QM reference: %d molecules (%d conformers)",
-        len(records),
-        sum(len(r.record_ids) for r in records),
-    )
+    # --- 1. Resolve data files ---
+    raw_files = config.get("data_files", config.get("data_file"))
+    if raw_files is None:
+        raise ValueError("Config must contain 'data_files' (list) or 'data_file' (string)")
+    if isinstance(raw_files, str):
+        raw_files = [raw_files]
 
-    if not records:
-        logger.warning("No molecules in QM reference.")
-        return
-
-    # --- 2. Discover optimized SDF files ---
-    opt_dir = resolve_path(config["optimized_directory"], config_path)
-    sdf_files = sorted(opt_dir.glob("optimized_*.sdf"))
-
-    if not sdf_files:
-        logger.error("No optimized_*.sdf files found in %s", opt_dir)
-        sys.exit(1)
-
-    logger.info("Found %d optimized SDF files:", len(sdf_files))
-    for f in sdf_files:
-        logger.info("  %s", f.name)
-
-    # --- 3. Read back all optimized results ---
-    optimized_results: dict[str, list] = {}
-    potential_names: list[str] = []
-
-    for sdf_file in sdf_files:
-        model_name, molecules = read_optimized_sdf(sdf_file, records)
-
-        if len(molecules) != len(records):
-            logger.warning(
-                "%s has %d molecules but QM reference has %d -- skipping",
-                sdf_file.name,
-                len(molecules),
-                len(records),
-            )
-            continue
-
-        optimized_results[model_name] = molecules
-        potential_names.append(model_name)
-        logger.info("Loaded %s: %d molecules", model_name, len(molecules))
-
-    if not potential_names:
-        logger.error("No valid optimized results to compare.")
-        sys.exit(1)
-
-    # --- 4. Set up output ---
-    output_dir = resolve_path(config["output_directory"], config_path)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    opt_base = resolve_path(config["optimized_directory"], config_path)
+    output_base = resolve_path(config["output_directory"], config_path)
 
     bond_thresh = config.get("bond_threshold", 0.1)
     angle_thresh = config.get("angle_threshold", 5.0)
     torsion_thresh = config.get("torsion_threshold", 40.0)
 
-    # --- 5. Compare each model vs QM ---
-    qm_comparison_results = []
-    pdf_path = output_dir / "benchmark_report.pdf"
+    # --- 2. Process each dataset independently ---
+    for file_idx, raw in enumerate(raw_files):
+        data_file = resolve_path(raw, config_path)
+        dataset_name = data_file.stem
+        logger.info(
+            "=== Dataset %d/%d: %s ===",
+            file_idx + 1,
+            len(raw_files),
+            dataset_name,
+        )
 
-    with PdfPages(str(pdf_path)) as pdf:
-        title_parts = [
-            "QM Benchmark Report",
-            "",
-            "Potentials: " + ", ".join(potential_names),
-            f"Molecules: {len(records)}",
-        ]
-        create_title_page(pdf, "\n".join(title_parts))
+        records = load_records(
+            data_file,
+            max_molecules=config.get("max_molecules"),
+            max_conformers_per_molecule=config.get("max_conformers_per_molecule"),
+        )
+        logger.info(
+            "  QM reference: %d molecules (%d conformers)",
+            len(records),
+            sum(len(r.record_ids) for r in records),
+        )
 
-        for mol_idx, rec in enumerate(records):
-            logger.info(
-                "[%d/%d] %s  (%d conformers)",
-                mol_idx + 1,
-                len(records),
-                rec.smiles,
-                len(rec.record_ids),
+        if not records:
+            logger.warning("  No molecules -- skipping.")
+            continue
+
+        # Discover optimized SDF files in the dataset subdirectory
+        dataset_opt_dir = opt_base / dataset_name
+        if not dataset_opt_dir.is_dir():
+            logger.warning(
+                "  Optimized directory not found: %s -- skipping.",
+                dataset_opt_dir,
             )
+            continue
 
-            opt_mols = {
-                pot_name: optimized_results[pot_name][mol_idx]
-                for pot_name in potential_names
-            }
-
-            qm_comp = evaluate_against_qm(
-                rec.molecule,
-                opt_mols,
-                bond_threshold=bond_thresh,
-                angle_threshold=angle_thresh,
-                torsion_threshold=torsion_thresh,
-                inchi_key=rec.inchi_key,
-                smiles=rec.smiles,
+        sdf_files = sorted(dataset_opt_dir.glob("optimized_*.sdf"))
+        if not sdf_files:
+            logger.warning(
+                "  No optimized_*.sdf files in %s -- skipping.",
+                dataset_opt_dir,
             )
-            qm_comparison_results.append(qm_comp)
+            continue
 
-            create_qm_comparison_report(
-                rec.molecule,
-                rec.smiles,
-                qm_comp,
-                potential_names,
-                pdf,
-                molecule_label=f"mol_{mol_idx} ({rec.inchi_key})",
-            )
+        logger.info("  Found %d optimized SDF files:", len(sdf_files))
+        for f in sdf_files:
+            logger.info("    %s", f.name)
 
-    logger.info("PDF report: %s", pdf_path)
+        # Read back all optimized results for this dataset
+        optimized_results: dict[str, list] = {}
+        potential_names: list[str] = []
 
-    # --- 6. Write CSV ---
-    detail_csv, summary_csv = write_qm_comparison_csv(
-        qm_comparison_results,
-        records,
-        potential_names,
-        output_dir,
-    )
-    logger.info("Detail CSV:  %s", detail_csv)
-    logger.info("Summary CSV: %s", summary_csv)
+        for sdf_file in sdf_files:
+            model_name, molecules = read_optimized_sdf(sdf_file, records)
 
-    logger.info("Comparison complete. Output: %s", output_dir)
+            if len(molecules) != len(records):
+                logger.warning(
+                    "  %s has %d molecules but QM reference has %d -- skipping",
+                    sdf_file.name,
+                    len(molecules),
+                    len(records),
+                )
+                continue
+
+            if model_name in optimized_results:
+                logger.info(
+                    "  %s: duplicate for %s -- using latest file",
+                    sdf_file.name,
+                    model_name,
+                )
+                optimized_results[model_name] = molecules
+                continue
+
+            optimized_results[model_name] = molecules
+            potential_names.append(model_name)
+            logger.info("  Loaded %s: %d molecules", model_name, len(molecules))
+
+        if not potential_names:
+            logger.warning("  No valid optimized results for %s.", dataset_name)
+            continue
+
+        # Set up per-dataset output directory
+        output_dir = output_base / dataset_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Compare each model vs QM
+        qm_comparison_results = []
+        pdf_path = output_dir / "benchmark_report.pdf"
+
+        with PdfPages(str(pdf_path)) as pdf:
+            title_parts = [
+                f"QM Benchmark Report: {dataset_name}",
+                "",
+                "Potentials: " + ", ".join(potential_names),
+                f"Molecules: {len(records)}",
+            ]
+            create_title_page(pdf, "\n".join(title_parts))
+
+            for mol_idx, rec in enumerate(records):
+                logger.info(
+                    "  [%d/%d] %s  (%d conformers)",
+                    mol_idx + 1,
+                    len(records),
+                    rec.smiles,
+                    len(rec.record_ids),
+                )
+
+                opt_mols = {
+                    pot_name: optimized_results[pot_name][mol_idx]
+                    for pot_name in potential_names
+                }
+
+                qm_comp = evaluate_against_qm(
+                    rec.molecule,
+                    opt_mols,
+                    bond_threshold=bond_thresh,
+                    angle_threshold=angle_thresh,
+                    torsion_threshold=torsion_thresh,
+                    inchi_key=rec.inchi_key,
+                    smiles=rec.smiles,
+                )
+                qm_comparison_results.append(qm_comp)
+
+                create_qm_comparison_report(
+                    rec.molecule,
+                    rec.smiles,
+                    qm_comp,
+                    potential_names,
+                    pdf,
+                    molecule_label=f"mol_{mol_idx} ({rec.inchi_key})",
+                )
+
+        logger.info("  PDF report: %s", pdf_path)
+
+        # Write CSV
+        detail_csv, summary_csv = write_qm_comparison_csv(
+            qm_comparison_results,
+            records,
+            potential_names,
+            output_dir,
+        )
+        logger.info("  Detail CSV:  %s", detail_csv)
+        logger.info("  Summary CSV: %s", summary_csv)
+
+    logger.info("Comparison complete.")
 
 
 if __name__ == "__main__":

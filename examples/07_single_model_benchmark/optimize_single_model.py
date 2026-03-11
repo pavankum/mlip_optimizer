@@ -24,29 +24,37 @@ JSON configuration
 ::
 
     {
-        "data_file": "path/to/input.parquet",
+        "data_files": [
+            "path/to/nitrogen.parquet",
+            "path/to/sulfur.parquet"
+        ],
         "output_directory": "../outputs/optimized",
         "potential": {"type": "openmm_ml", "potential_name": "aceff-2.0"},
-        "max_molecules": 2,
-        "max_conformers_per_molecule": 3
+        "max_molecules": 100000,
+        "max_conformers_per_molecule": 10
     }
 
 Fields:
 
-- **data_file** *(required)*: Path to a ``.parquet`` or ``.sdf`` input
-  file containing QM reference geometries.
-- **output_directory** *(required)*: Directory for the output SDF file.
+- **data_files** *(required)*: List of paths to ``.parquet`` or ``.sdf``
+  input files containing QM reference geometries. A single string
+  ``"data_file"`` is also accepted for backward compatibility.
+- **output_directory** *(required)*: Directory for the output SDF files.
+  A subdirectory is created per input data file (named after the file stem).
 - **potential** *(required)*: A single optimizer specification with
   ``"type"`` (``"openff"`` or ``"openmm_ml"``) plus the type-specific
   parameter (``"forcefield"`` or ``"potential_name"``).
-- **max_molecules** *(optional)*: Limit the number of molecules processed.
-- **max_conformers_per_molecule** *(optional)*: Limit conformers per molecule.
+- **max_molecules** *(optional)*: Limit the number of molecules processed
+  (applied per file).
+- **max_conformers_per_molecule** *(optional)*: Limit conformers per
+  molecule (applied per file).
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from openff.toolkit import Molecule
@@ -95,52 +103,74 @@ def main(config_path: str | Path) -> None:
     """Run single-model optimization driven by a JSON config."""
     config = load_json_config(
         config_path,
-        required_keys=("data_file", "output_directory", "potential"),
+        required_keys=("output_directory", "potential"),
     )
 
     # Build optimizer
     pot_name, optimizer = build_optimizer(config["potential"])
     logger.info("Potential: %s", pot_name)
 
-    # Load QM reference data
-    data_file = resolve_path(config["data_file"], config_path)
-    records = load_records(
-        data_file,
-        max_molecules=config.get("max_molecules"),
-        max_conformers_per_molecule=config.get("max_conformers_per_molecule"),
-    )
-    logger.info(
-        "Loaded %d molecules (%d total conformers)",
-        len(records),
-        sum(len(r.record_ids) for r in records),
-    )
+    # Normalize data_files / data_file to a list
+    raw_files = config.get("data_files", config.get("data_file"))
+    if raw_files is None:
+        raise ValueError("Config must contain 'data_files' (list) or 'data_file' (string)")
+    if isinstance(raw_files, str):
+        raw_files = [raw_files]
 
-    if not records:
-        logger.warning("No molecules to process.")
-        return
-
-    # Optimize each molecule, preserving order
-    optimized: list[Molecule] = []
-    for mol_idx, rec in enumerate(records):
-        logger.info(
-            "[%d/%d] %s  (%d conformers)",
-            mol_idx + 1,
-            len(records),
-            rec.smiles,
-            len(rec.record_ids),
-        )
-        try:
-            opt_mol = optimizer.optimize(rec.molecule)
-        except Exception as exc:
-            logger.warning("  Failed: %s -- keeping unoptimized geometry", exc)
-            opt_mol = rec.molecule
-        optimized.append(opt_mol)
-
-    # Write output SDF (one file named after the model)
     output_dir = resolve_path(config["output_directory"], config_path)
-    sdf_paths = write_batch_sdf(records, {pot_name: optimized}, output_dir)
-    for name, path in sdf_paths.items():
-        logger.info("Output SDF: %s", path)
+    timestamp = datetime.now().strftime("_%Y%m%dT%H%M%S")
+
+    # Process each data file independently
+    for file_idx, raw in enumerate(raw_files):
+        data_file = resolve_path(raw, config_path)
+        dataset_name = data_file.stem
+        logger.info(
+            "=== Dataset %d/%d: %s ===",
+            file_idx + 1,
+            len(raw_files),
+            dataset_name,
+        )
+
+        records = load_records(
+            data_file,
+            max_molecules=config.get("max_molecules"),
+            max_conformers_per_molecule=config.get("max_conformers_per_molecule"),
+        )
+        logger.info(
+            "  %d molecules (%d conformers)",
+            len(records),
+            sum(len(r.record_ids) for r in records),
+        )
+
+        if not records:
+            logger.warning("  No molecules -- skipping.")
+            continue
+
+        # Optimize each molecule, preserving order
+        optimized: list[Molecule] = []
+        for mol_idx, rec in enumerate(records):
+            logger.info(
+                "  [%d/%d] %s  (%d conformers)",
+                mol_idx + 1,
+                len(records),
+                rec.smiles,
+                len(rec.record_ids),
+            )
+            try:
+                opt_mol = optimizer.optimize(rec.molecule) # type: ignore
+            except Exception as exc:
+                logger.warning("    Failed: %s -- keeping unoptimized geometry", exc)
+                opt_mol = rec.molecule
+            optimized.append(opt_mol)
+
+        # Write output SDF into a dataset-specific subdirectory
+        dataset_dir = output_dir / dataset_name
+        sdf_paths = write_batch_sdf(
+            records, {pot_name: optimized}, dataset_dir,
+            file_suffix=timestamp,
+        )
+        for name, path in sdf_paths.items():
+            logger.info("  Output SDF: %s", path)
 
     logger.info("Optimization complete.")
 
