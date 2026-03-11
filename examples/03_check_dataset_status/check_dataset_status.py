@@ -38,15 +38,5 @@ def main():
         pprint(status, indent=4)
         print()
 
-    # --- Single dataset status check ---
-    print("Single dataset check:")
-    status = get_dataset_status(
-        "OpenFF Theory Benchmarking Set v1.0",
-        dataset_type="torsiondrive",
-    )
-    print("  torsiondrive/OpenFF Theory Benchmarking Set v1.0:")
-    pprint(status, indent=4)
-
-
 if __name__ == "__main__":
     main()
