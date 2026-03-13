@@ -554,7 +554,7 @@ def compute_overall_statistics(
                 total_conformers += 1
                 # Use record_id if available, otherwise molecule name
                 if conf_idx < len(qm_comp.record_ids):
-                    mol_id = f"{mol_name} (record {qm_comp.record_ids[conf_idx]})"
+                    mol_id = str(qm_comp.record_ids[conf_idx])
                 else:
                     mol_id = mol_name
                 all_rmsds.append(m.rmsd)
