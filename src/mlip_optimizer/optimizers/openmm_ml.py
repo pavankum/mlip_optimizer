@@ -20,32 +20,33 @@ from openmm import unit as omm_unit
 from openmm.app import Simulation
 from openmmml import MLPotential
 
-# Mapping from potential name to the ``createSystem`` keyword used to pass a
-# custom model/checkpoint path.  Only potentials that support loading from
-# a user-supplied file are listed here.
-_MODEL_PATH_KWARG: dict[str, str] = {
-    # MACE family  →  modelPath
-    "mace": "modelPath",
-    "mace-mpa-0-medium": "modelPath",
-    "mace-off23-large": "modelPath",
-    "mace-off23-medium": "modelPath",
-    "mace-off23-small": "modelPath",
-    "mace-off24-medium": "modelPath",
-    "mace-omat-0-medium": "modelPath",
-    "mace-omat-0-small": "modelPath",
-    # AIMNet / ANI  →  modelPath
-    "aimnet2": "modelPath",
-    "ani1ccx": "modelPath",
-    "ani2x": "modelPath",
-    # AcePotential (AceFF)  →  ckpt_path
-    "aceff-1.0": "ckpt_path",
-    "aceff-1.1": "ckpt_path",
-    "aceff-2.0": "ckpt_path",
-    # FeNNIx  →  modelPath
-    "fennix-bio1-medium": "modelPath",
-    "fennix-bio1-medium-finetune-ions": "modelPath",
-    "fennix-bio1-small": "modelPath",
-    "fennix-bio1-small-finetune-ions": "modelPath",
+# Mapping from potential name to the generic ``MLPotential`` name that
+# accepts a ``modelPath`` keyword for loading a user-supplied checkpoint.
+# When ``model_path`` is provided, the potential name is replaced with this
+# generic name so that ``MLPotential`` loads the local file instead of
+# downloading a built-in model.
+_GENERIC_NAME_FOR_LOCAL_MODEL: dict[str, str] = {
+    # MACE family  →  generic name 'mace'
+    "mace": "mace",
+    "mace-mpa-0-medium": "mace",
+    "mace-off23-large": "mace",
+    "mace-off23-medium": "mace",
+    "mace-off23-small": "mace",
+    "mace-off24-medium": "mace",
+    "mace-omat-0-medium": "mace",
+    "mace-omat-0-small": "mace",
+    "mace-omol-0-extra-large": "mace",
+    # AceFF / TorchMDNet  →  generic name 'torchmdnet'
+    "aceff-1.0": "torchmdnet",
+    "aceff-1.1": "torchmdnet",
+    "aceff-2.0": "torchmdnet",
+    "torchmdnet": "torchmdnet",
+    # FeNNIx  →  generic name 'fennix'
+    "fennix": "fennix",
+    "fennix-bio1-medium": "fennix",
+    "fennix-bio1-medium-finetune-ions": "fennix",
+    "fennix-bio1-small": "fennix",
+    "fennix-bio1-small-finetune-ions": "fennix",
 }
 
 
@@ -58,10 +59,13 @@ class OpenMMMLOptimizer:
         Name of the ML potential recognized by ``openmmml.MLPotential``,
         e.g. ``"aceff-2.0"``, ``"ani2x"``, ``"mace-off23-medium"``.
     model_path : str or Path or None, optional
-        Path to a custom model checkpoint file.  Only used for potentials
-        listed in :data:`_MODEL_PATH_KWARG` (MACE variants, AIMNet2,
-        ANI models, AceFF, FeNNIx).  When ``None`` (default) the
-        built-in model shipped with the potential package is used.
+        Path to a custom model checkpoint file.  When set, the potential
+        name is remapped to the generic loader name (``'mace'``,
+        ``'torchmdnet'``, or ``'fennix'``) so that ``MLPotential`` loads
+        the local file via its ``modelPath`` argument instead of
+        downloading a built-in model.  See
+        :data:`_GENERIC_NAME_FOR_LOCAL_MODEL` for supported potentials.
+        When ``None`` (default) the built-in model is used.
     tolerance : float, optional
         Convergence tolerance in kJ/mol/nm.  Default is ``10.0``.
     max_iterations : int, optional
@@ -95,9 +99,18 @@ class OpenMMMLOptimizer:
     ) -> None:
         self._potential_name = potential_name
         self._model_path = str(model_path) if model_path is not None else None
-        self._potential = MLPotential(potential_name)
         self._tolerance = tolerance
         self._max_iterations = max_iterations
+
+        # When a local model file is provided, swap to the generic loader
+        # name so MLPotential routes through the local-file code path.
+        init_kwargs: dict = {}
+        if self._model_path is not None:
+            generic = _GENERIC_NAME_FOR_LOCAL_MODEL.get(potential_name)
+            if generic is not None:
+                potential_name = generic
+                init_kwargs["modelPath"] = self._model_path
+        self._potential = MLPotential(potential_name, **init_kwargs)
 
     @property
     def name(self) -> str:
@@ -124,15 +137,7 @@ class OpenMMMLOptimizer:
         result = Molecule(molecule)
         off_topology = result.to_topology()
 
-        create_kwargs: dict = {}
-        if self._model_path is not None:
-            kwarg_name = _MODEL_PATH_KWARG.get(self._potential_name)
-            if kwarg_name is not None:
-                create_kwargs[kwarg_name] = self._model_path
-
-        system = self._potential.createSystem(
-            off_topology.to_openmm(), **create_kwargs
-        )
+        system = self._potential.createSystem(off_topology.to_openmm())
 
         original_conformers = list(result.conformers)
         result.clear_conformers()
