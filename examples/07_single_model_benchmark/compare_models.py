@@ -100,6 +100,8 @@ def _evaluate_one_molecule(
     torsion_thresh: float,
     inchi_key: str,
     smiles: str,
+    molecule_name: str,
+    record_ids: list[int],
 ):
     """Evaluate a single molecule against QM reference (worker function)."""
     return mol_idx, evaluate_against_qm(
@@ -110,6 +112,8 @@ def _evaluate_one_molecule(
         torsion_threshold=torsion_thresh,
         inchi_key=inchi_key,
         smiles=smiles,
+        molecule_name=molecule_name,
+        record_ids=record_ids,
     )
 
 
@@ -246,6 +250,8 @@ def main(config_path: str | Path) -> None:
                 torsion_thresh,
                 rec.inchi_key,
                 rec.smiles,
+                rec.inchi_key or rec.smiles,
+                rec.record_ids,
             ))
 
         qm_comparison_results: list = [None] * len(records)

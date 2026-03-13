@@ -268,6 +268,8 @@ def run_parquet_benchmark(
                 torsion_threshold=torsion_thresh,
                 inchi_key=rec.inchi_key,
                 smiles=rec.smiles,
+                molecule_name=rec.inchi_key or rec.smiles,
+                record_ids=rec.record_ids,
             )
             qm_comparison_results.append(qm_comp)
 

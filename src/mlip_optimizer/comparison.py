@@ -271,6 +271,10 @@ class QMComparisonResult:
         Aggregated angle difference rows.
     torsion_diff_table : list[list]
         Aggregated torsion difference rows.
+    molecule_name : str
+        Human-readable molecule name or label.
+    record_ids : list[int]
+        QCArchive record IDs, one per conformer.
     """
 
     inchi_key: str = ""
@@ -282,6 +286,8 @@ class QMComparisonResult:
     bond_diff_table: list[list] = field(default_factory=list)
     angle_diff_table: list[list] = field(default_factory=list)
     torsion_diff_table: list[list] = field(default_factory=list)
+    molecule_name: str = ""
+    record_ids: list[int] = field(default_factory=list)
 
 
 def evaluate_against_qm(
@@ -294,6 +300,8 @@ def evaluate_against_qm(
     torsion_threshold: float = 40.0,
     inchi_key: str = "",
     smiles: str = "",
+    molecule_name: str = "",
+    record_ids: list[int] | None = None,
 ) -> QMComparisonResult:
     """Compare optimized geometries from multiple potentials against QM.
 
@@ -324,6 +332,10 @@ def evaluate_against_qm(
         InChI key for the molecule (stored in result metadata).
     smiles : str, optional
         Canonical SMILES (stored in result metadata).
+    molecule_name : str, optional
+        Human-readable molecule name or label.
+    record_ids : list[int] or None, optional
+        QCArchive record IDs, one per conformer.
 
     Returns
     -------
@@ -420,6 +432,8 @@ def evaluate_against_qm(
         bond_diff_table=bond_table,
         angle_diff_table=angle_table,
         torsion_diff_table=torsion_table,
+        molecule_name=molecule_name,
+        record_ids=record_ids if record_ids is not None else [],
     )
 
 
@@ -441,7 +455,7 @@ class OverallErrorStatistics:
     rmsd_min : float
     rmsd_max : float
     rmsd_max_id : str
-        Molecule identifier (inchi_key) with the largest RMSD.
+        Molecule identifier (record ID or molecule name) with the largest RMSD.
     bond_mean : float
     bond_std : float
     bond_median : float
@@ -530,10 +544,19 @@ def compute_overall_statistics(
         total_conformers = 0
 
         for qm_comp in qm_results:
-            mol_id = qm_comp.inchi_key or qm_comp.smiles
+            mol_name = (
+                qm_comp.molecule_name
+                or qm_comp.inchi_key
+                or qm_comp.smiles
+            )
             metrics_list = qm_comp.per_potential.get(pot_name, [])
-            for m in metrics_list:
+            for conf_idx, m in enumerate(metrics_list):
                 total_conformers += 1
+                # Use record_id if available, otherwise molecule name
+                if conf_idx < len(qm_comp.record_ids):
+                    mol_id = f"{mol_name} (record {qm_comp.record_ids[conf_idx]})"
+                else:
+                    mol_id = mol_name
                 all_rmsds.append(m.rmsd)
                 mol_ids_rmsd.append(mol_id)
                 all_max_bond.append(m.max_bond_diff)
