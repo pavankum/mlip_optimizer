@@ -53,3 +53,4 @@ dependencies:
       - git+https://github.com/openforcefield/yammbs.git@main
       - aimnet
       - huggingface_hub
+      - fennol
