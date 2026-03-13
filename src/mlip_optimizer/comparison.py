@@ -423,6 +423,167 @@ def evaluate_against_qm(
     )
 
 
+@dataclass(frozen=True)
+class OverallErrorStatistics:
+    """Aggregated error statistics across all molecules for each potential.
+
+    Attributes
+    ----------
+    potential_name : str
+        Name of the potential model.
+    n_molecules : int
+        Number of molecules analysed.
+    n_conformers_total : int
+        Total number of conformers across all molecules.
+    rmsd_mean : float
+    rmsd_std : float
+    rmsd_median : float
+    rmsd_min : float
+    rmsd_max : float
+    rmsd_max_id : str
+        Molecule identifier (inchi_key) with the largest RMSD.
+    bond_mean : float
+    bond_std : float
+    bond_median : float
+    bond_min : float
+    bond_max : float
+    bond_max_id : str
+    angle_mean : float
+    angle_std : float
+    angle_median : float
+    angle_min : float
+    angle_max : float
+    angle_max_id : str
+    torsion_mean : float
+    torsion_std : float
+    torsion_median : float
+    torsion_min : float
+    torsion_max : float
+    torsion_max_id : str
+    """
+
+    potential_name: str
+    n_molecules: int
+    n_conformers_total: int
+    rmsd_mean: float
+    rmsd_std: float
+    rmsd_median: float
+    rmsd_min: float
+    rmsd_max: float
+    rmsd_max_id: str
+    bond_mean: float
+    bond_std: float
+    bond_median: float
+    bond_min: float
+    bond_max: float
+    bond_max_id: str
+    angle_mean: float
+    angle_std: float
+    angle_median: float
+    angle_min: float
+    angle_max: float
+    angle_max_id: str
+    torsion_mean: float
+    torsion_std: float
+    torsion_median: float
+    torsion_min: float
+    torsion_max: float
+    torsion_max_id: str
+
+
+def compute_overall_statistics(
+    qm_results: list[QMComparisonResult],
+    potential_names: list[str],
+) -> dict[str, OverallErrorStatistics]:
+    """Compute overall error statistics per potential across all molecules.
+
+    For each potential, aggregates per-conformer RMSD and per-conformer
+    max bond/angle/torsion differences across *all* molecules, then
+    computes summary statistics (mean, std, median, min, max) and
+    identifies the molecule with the worst (max) error for each metric.
+
+    Parameters
+    ----------
+    qm_results : list[QMComparisonResult]
+        One per molecule, from :func:`evaluate_against_qm`.
+    potential_names : list[str]
+        Ordered list of potential names.
+
+    Returns
+    -------
+    dict[str, OverallErrorStatistics]
+        Map from potential name to its aggregated statistics.
+    """
+    stats: dict[str, OverallErrorStatistics] = {}
+
+    for pot_name in potential_names:
+        all_rmsds: list[float] = []
+        all_max_bond: list[float] = []
+        all_max_angle: list[float] = []
+        all_max_torsion: list[float] = []
+        # Track which molecule each value belongs to (index into qm_results)
+        mol_ids_rmsd: list[str] = []
+        mol_ids_bond: list[str] = []
+        mol_ids_angle: list[str] = []
+        mol_ids_torsion: list[str] = []
+
+        total_conformers = 0
+
+        for qm_comp in qm_results:
+            mol_id = qm_comp.inchi_key or qm_comp.smiles
+            metrics_list = qm_comp.per_potential.get(pot_name, [])
+            for m in metrics_list:
+                total_conformers += 1
+                all_rmsds.append(m.rmsd)
+                mol_ids_rmsd.append(mol_id)
+                all_max_bond.append(m.max_bond_diff)
+                mol_ids_bond.append(mol_id)
+                all_max_angle.append(m.max_angle_diff)
+                mol_ids_angle.append(mol_id)
+                all_max_torsion.append(m.max_torsion_diff)
+                mol_ids_torsion.append(mol_id)
+
+        if not all_rmsds:
+            continue
+
+        arr_rmsd = np.array(all_rmsds)
+        arr_bond = np.array(all_max_bond)
+        arr_angle = np.array(all_max_angle)
+        arr_torsion = np.array(all_max_torsion)
+
+        stats[pot_name] = OverallErrorStatistics(
+            potential_name=pot_name,
+            n_molecules=len(qm_results),
+            n_conformers_total=total_conformers,
+            rmsd_mean=float(np.mean(arr_rmsd)),
+            rmsd_std=float(np.std(arr_rmsd)),
+            rmsd_median=float(np.median(arr_rmsd)),
+            rmsd_min=float(np.min(arr_rmsd)),
+            rmsd_max=float(np.max(arr_rmsd)),
+            rmsd_max_id=mol_ids_rmsd[int(np.argmax(arr_rmsd))],
+            bond_mean=float(np.mean(arr_bond)),
+            bond_std=float(np.std(arr_bond)),
+            bond_median=float(np.median(arr_bond)),
+            bond_min=float(np.min(arr_bond)),
+            bond_max=float(np.max(arr_bond)),
+            bond_max_id=mol_ids_bond[int(np.argmax(arr_bond))],
+            angle_mean=float(np.mean(arr_angle)),
+            angle_std=float(np.std(arr_angle)),
+            angle_median=float(np.median(arr_angle)),
+            angle_min=float(np.min(arr_angle)),
+            angle_max=float(np.max(arr_angle)),
+            angle_max_id=mol_ids_angle[int(np.argmax(arr_angle))],
+            torsion_mean=float(np.mean(arr_torsion)),
+            torsion_std=float(np.std(arr_torsion)),
+            torsion_median=float(np.median(arr_torsion)),
+            torsion_min=float(np.min(arr_torsion)),
+            torsion_max=float(np.max(arr_torsion)),
+            torsion_max_id=mol_ids_torsion[int(np.argmax(arr_torsion))],
+        )
+
+    return stats
+
+
 def _aggregate_qm_diffs(
     accum: dict[tuple, dict[str, list[float]]],
     ref_accum: dict[tuple, list[float]],

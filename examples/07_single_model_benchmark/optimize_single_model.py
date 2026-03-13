@@ -44,6 +44,9 @@ Fields:
 - **potential** *(required)*: A single optimizer specification with
   ``"type"`` (``"openff"`` or ``"openmm_ml"``) plus the type-specific
   parameter (``"forcefield"`` or ``"potential_name"``).
+  For ``"openmm_ml"`` potentials that support custom checkpoints
+  (MACE variants, AIMNet2, ANI models), an optional ``"model_path"``
+  field can point to a checkpoint file (relative to config or absolute).
 - **max_molecules** *(optional)*: Limit the number of molecules processed
   (applied per file).
 - **max_conformers_per_molecule** *(optional)*: Limit conformers per
@@ -82,7 +85,7 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 
 
-def build_optimizer(spec: dict) -> tuple[str, object]:
+def build_optimizer(spec: dict, config_path: str | Path | None = None) -> tuple[str, object]:
     """Return ``(display_name, optimizer)`` from a potential spec."""
     pot_type = spec["type"]
     if pot_type == "openff":
@@ -90,7 +93,12 @@ def build_optimizer(spec: dict) -> tuple[str, object]:
         return ff.replace(".offxml", ""), OpenFFOptimizer(forcefield=ff)
     if pot_type == "openmm_ml":
         name = spec["potential_name"]
-        return name, OpenMMMLOptimizer(potential_name=name)
+        model_path = spec.get("model_path")
+        if model_path is not None and config_path is not None:
+            model_path = resolve_path(model_path, config_path)
+        return name, OpenMMMLOptimizer(
+            potential_name=name, model_path=model_path,
+        )
     raise ValueError(f"Unknown potential type: '{pot_type}'")
 
 
@@ -107,7 +115,7 @@ def main(config_path: str | Path) -> None:
     )
 
     # Build optimizer
-    pot_name, optimizer = build_optimizer(config["potential"])
+    pot_name, optimizer = build_optimizer(config["potential"], config_path)
     logger.info("Potential: %s", pot_name)
 
     # Normalize data_files / data_file to a list
@@ -148,6 +156,7 @@ def main(config_path: str | Path) -> None:
 
         # Optimize each molecule, preserving order
         optimized: list[Molecule] = []
+        failed = False
         for mol_idx, rec in enumerate(records):
             logger.info(
                 "  [%d/%d] %s  (%d conformers)",
@@ -159,9 +168,14 @@ def main(config_path: str | Path) -> None:
             try:
                 opt_mol = optimizer.optimize(rec.molecule) # type: ignore
             except Exception as exc:
-                logger.warning("    Failed: %s -- keeping unoptimized geometry", exc)
-                opt_mol = rec.molecule
+                logger.error("    Failed: %s -- aborting dataset", exc)
+                failed = True
+                break
             optimized.append(opt_mol)
+
+        if failed:
+            logger.warning("  Skipping SDF output for %s due to failure.", dataset_name)
+            continue
 
         # Write output SDF into a dataset-specific subdirectory
         dataset_dir = output_dir / dataset_name

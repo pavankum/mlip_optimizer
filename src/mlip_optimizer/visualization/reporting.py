@@ -17,7 +17,11 @@ from openff.toolkit import Molecule
 from PIL import Image
 from tabulate import tabulate
 
-from mlip_optimizer.comparison import ComparisonResult, QMComparisonResult
+from mlip_optimizer.comparison import (
+    ComparisonResult,
+    OverallErrorStatistics,
+    QMComparisonResult,
+)
 from mlip_optimizer.visualization.drawing import draw_molecule
 
 
@@ -370,3 +374,193 @@ def create_qm_comparison_report(
     pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
     plt.close(fig)
     plt.close("all")
+
+
+def create_statistics_report(
+    stats: dict[str, OverallErrorStatistics],
+    potential_names: list[str],
+    pdf_pages: PdfPages,
+    *,
+    dataset_name: str = "",
+    dpi: int = 300,
+) -> None:
+    """Add overall error statistics pages to a PDF report.
+
+    Creates one page per metric (RMSD, bond, angle, torsion) with a
+    summary table comparing all potentials, including max-error molecule
+    identifiers.
+
+    Parameters
+    ----------
+    stats : dict[str, OverallErrorStatistics]
+        Map from potential name to its aggregated statistics, from
+        :func:`compute_overall_statistics`.
+    potential_names : list[str]
+        Ordered list of potential names (row order in tables).
+    pdf_pages : PdfPages
+        Open PdfPages object to write into.
+    dataset_name : str, optional
+        Dataset label for page titles.
+    dpi : int, optional
+        Resolution.  Default is ``300``.
+    """
+    if not stats:
+        return
+
+    # --- Page 1: Summary overview table ---
+    _add_summary_overview_page(stats, potential_names, pdf_pages, dataset_name, dpi)
+
+    # --- Page 2+: Per-metric detail tables ---
+    metrics_info = [
+        ("RMSD (Angstrom)", "rmsd"),
+        ("Max Bond Diff (Angstrom)", "bond"),
+        ("Max Angle Diff (degrees)", "angle"),
+        ("Max Torsion Diff (degrees)", "torsion"),
+    ]
+    for title_label, prefix in metrics_info:
+        _add_metric_detail_page(
+            stats, potential_names, pdf_pages, title_label, prefix,
+            dataset_name, dpi,
+        )
+
+
+def _add_summary_overview_page(
+    stats: dict[str, OverallErrorStatistics],
+    potential_names: list[str],
+    pdf_pages: PdfPages,
+    dataset_name: str,
+    dpi: int,
+) -> None:
+    """Add the overview page with one row per potential and key statistics."""
+    fig, ax = plt.subplots(figsize=(17, 11), dpi=dpi)
+    ax.axis("off")
+
+    headers = [
+        "Potential",
+        "N conf",
+        "RMSD\nmean\u00b1std",
+        "RMSD\nmax",
+        "Bond\nmean\u00b1std",
+        "Bond\nmax",
+        "Angle\nmean\u00b1std",
+        "Angle\nmax",
+        "Torsion\nmean\u00b1std",
+        "Torsion\nmax",
+    ]
+
+    rows: list[list[str]] = []
+    for pot in potential_names:
+        s = stats.get(pot)
+        if s is None:
+            rows.append([pot] + ["N/A"] * 9)
+            continue
+        rows.append([
+            pot,
+            str(s.n_conformers_total),
+            f"{s.rmsd_mean:.4f}\u00b1{s.rmsd_std:.4f}",
+            f"{s.rmsd_max:.4f}",
+            f"{s.bond_mean:.4f}\u00b1{s.bond_std:.4f}",
+            f"{s.bond_max:.4f}",
+            f"{s.angle_mean:.2f}\u00b1{s.angle_std:.2f}",
+            f"{s.angle_max:.2f}",
+            f"{s.torsion_mean:.2f}\u00b1{s.torsion_std:.2f}",
+            f"{s.torsion_max:.2f}",
+        ])
+
+    text_parts: list[str] = []
+    text_parts.append(f"Overall Error Statistics: {dataset_name}")
+    text_parts.append("=" * 120)
+    text_parts.append("")
+    text_parts.append(
+        tabulate(rows, headers=headers, tablefmt="simple", stralign="right")
+    )
+
+    # Max-error molecule identifiers table
+    text_parts.append("")
+    text_parts.append("")
+    text_parts.append("Worst-Case Molecule Identifiers (max error)")
+    text_parts.append("-" * 120)
+    id_headers = [
+        "Potential", "RMSD max ID", "Bond max ID", "Angle max ID", "Torsion max ID",
+    ]
+    id_rows: list[list[str]] = []
+    for pot in potential_names:
+        s = stats.get(pot)
+        if s is None:
+            id_rows.append([pot] + ["N/A"] * 4)
+            continue
+        id_rows.append([
+            pot,
+            s.rmsd_max_id,
+            s.bond_max_id,
+            s.angle_max_id,
+            s.torsion_max_id,
+        ])
+    text_parts.append(
+        tabulate(id_rows, headers=id_headers, tablefmt="simple", stralign="left")
+    )
+
+    font_size = max(5, 8 - len(potential_names))
+    ax.text(
+        0.02, 0.98, "\n".join(text_parts),
+        fontsize=font_size, family="monospace",
+        verticalalignment="top", transform=ax.transAxes,
+    )
+
+    pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
+    plt.close(fig)
+
+
+def _add_metric_detail_page(
+    stats: dict[str, OverallErrorStatistics],
+    potential_names: list[str],
+    pdf_pages: PdfPages,
+    title_label: str,
+    prefix: str,
+    dataset_name: str,
+    dpi: int,
+) -> None:
+    """Add a detail page for a single metric (rmsd/bond/angle/torsion)."""
+    fig, ax = plt.subplots(figsize=(17, 11), dpi=dpi)
+    ax.axis("off")
+
+    headers = [
+        "Potential", "Mean", "Std", "Median", "Min", "Max", "Max Error Molecule",
+    ]
+
+    fmt = ".4f" if prefix in ("rmsd", "bond") else ".2f"
+
+    rows: list[list[str]] = []
+    for pot in potential_names:
+        s = stats.get(pot)
+        if s is None:
+            rows.append([pot] + ["N/A"] * 6)
+            continue
+        rows.append([
+            pot,
+            f"{getattr(s, f'{prefix}_mean'):{fmt}}",
+            f"{getattr(s, f'{prefix}_std'):{fmt}}",
+            f"{getattr(s, f'{prefix}_median'):{fmt}}",
+            f"{getattr(s, f'{prefix}_min'):{fmt}}",
+            f"{getattr(s, f'{prefix}_max'):{fmt}}",
+            getattr(s, f"{prefix}_max_id"),
+        ])
+
+    text_parts: list[str] = []
+    text_parts.append(f"{title_label} — {dataset_name}")
+    text_parts.append("=" * 120)
+    text_parts.append(f"Per-conformer statistics across all molecules")
+    text_parts.append("")
+    text_parts.append(
+        tabulate(rows, headers=headers, tablefmt="simple", stralign="right")
+    )
+
+    font_size = max(5, 9 - len(potential_names))
+    ax.text(
+        0.02, 0.98, "\n".join(text_parts),
+        fontsize=font_size, family="monospace",
+        verticalalignment="top", transform=ax.transAxes,
+    )
+
+    pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
+    plt.close(fig)

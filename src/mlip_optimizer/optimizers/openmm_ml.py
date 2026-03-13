@@ -11,12 +11,42 @@ using any of the supported ML interatomic potentials:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import openmm
 from openff.toolkit import Molecule
 from openff.units import unit
 from openmm import unit as omm_unit
 from openmm.app import Simulation
 from openmmml import MLPotential
+
+# Mapping from potential name to the ``createSystem`` keyword used to pass a
+# custom model/checkpoint path.  Only potentials that support loading from
+# a user-supplied file are listed here.
+_MODEL_PATH_KWARG: dict[str, str] = {
+    # MACE family  →  modelPath
+    "mace": "modelPath",
+    "mace-mpa-0-medium": "modelPath",
+    "mace-off23-large": "modelPath",
+    "mace-off23-medium": "modelPath",
+    "mace-off23-small": "modelPath",
+    "mace-off24-medium": "modelPath",
+    "mace-omat-0-medium": "modelPath",
+    "mace-omat-0-small": "modelPath",
+    # AIMNet / ANI  →  modelPath
+    "aimnet2": "modelPath",
+    "ani1ccx": "modelPath",
+    "ani2x": "modelPath",
+    # AcePotential (AceFF)  →  ckpt_path
+    "aceff-1.0": "ckpt_path",
+    "aceff-1.1": "ckpt_path",
+    "aceff-2.0": "ckpt_path",
+    # FeNNIx  →  modelPath
+    "fennix-bio1-medium": "modelPath",
+    "fennix-bio1-medium-finetune-ions": "modelPath",
+    "fennix-bio1-small": "modelPath",
+    "fennix-bio1-small-finetune-ions": "modelPath",
+}
 
 
 class OpenMMMLOptimizer:
@@ -27,6 +57,11 @@ class OpenMMMLOptimizer:
     potential_name : str
         Name of the ML potential recognized by ``openmmml.MLPotential``,
         e.g. ``"aceff-2.0"``, ``"ani2x"``, ``"mace-off23-medium"``.
+    model_path : str or Path or None, optional
+        Path to a custom model checkpoint file.  Only used for potentials
+        listed in :data:`_MODEL_PATH_KWARG` (MACE variants, AIMNet2,
+        ANI models, AceFF, FeNNIx).  When ``None`` (default) the
+        built-in model shipped with the potential package is used.
     tolerance : float, optional
         Convergence tolerance in kJ/mol/nm.  Default is ``10.0``.
     max_iterations : int, optional
@@ -42,15 +77,24 @@ class OpenMMMLOptimizer:
     >>> result = opt.optimize(mol)
     >>> len(result.conformers)
     1
+
+    Using a custom checkpoint:
+
+    >>> opt = OpenMMMLOptimizer(
+    ...     potential_name="mace-off23-medium",
+    ...     model_path="models/my_finetuned_mace.model",
+    ... )
     """
 
     def __init__(
         self,
         potential_name: str = "aceff-2.0",
+        model_path: str | Path | None = None,
         tolerance: float = 10.0,
         max_iterations: int = 0,
     ) -> None:
         self._potential_name = potential_name
+        self._model_path = str(model_path) if model_path is not None else None
         self._potential = MLPotential(potential_name)
         self._tolerance = tolerance
         self._max_iterations = max_iterations
@@ -79,7 +123,16 @@ class OpenMMMLOptimizer:
         """
         result = Molecule(molecule)
         off_topology = result.to_topology()
-        system = self._potential.createSystem(off_topology.to_openmm())
+
+        create_kwargs: dict = {}
+        if self._model_path is not None:
+            kwarg_name = _MODEL_PATH_KWARG.get(self._potential_name)
+            if kwarg_name is not None:
+                create_kwargs[kwarg_name] = self._model_path
+
+        system = self._potential.createSystem(
+            off_topology.to_openmm(), **create_kwargs
+        )
 
         original_conformers = list(result.conformers)
         result.clear_conformers()

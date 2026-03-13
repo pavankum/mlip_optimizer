@@ -55,16 +55,20 @@ Fields:
 from __future__ import annotations
 
 import logging
+import os
 import sys
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from pathlib import Path
 
 from matplotlib.backends.backend_pdf import PdfPages
 
-from mlip_optimizer import evaluate_against_qm
+from mlip_optimizer import compute_overall_statistics, evaluate_against_qm
 from mlip_optimizer.data import load_records
 from mlip_optimizer.io import read_optimized_sdf, write_qm_comparison_csv
 from mlip_optimizer.visualization import (
     create_qm_comparison_report,
+    create_statistics_report,
     create_title_page,
 )
 
@@ -80,6 +84,33 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
 )
+
+
+# ---------------------------------------------------------------------------
+# Helper for parallel evaluation (must be top-level for pickling)
+# ---------------------------------------------------------------------------
+
+
+def _evaluate_one_molecule(
+    mol_idx: int,
+    rec_molecule,
+    opt_mols: dict,
+    bond_thresh: float,
+    angle_thresh: float,
+    torsion_thresh: float,
+    inchi_key: str,
+    smiles: str,
+):
+    """Evaluate a single molecule against QM reference (worker function)."""
+    return mol_idx, evaluate_against_qm(
+        rec_molecule,
+        opt_mols,
+        bond_threshold=bond_thresh,
+        angle_threshold=angle_thresh,
+        torsion_threshold=torsion_thresh,
+        inchi_key=inchi_key,
+        smiles=smiles,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -195,10 +226,47 @@ def main(config_path: str | Path) -> None:
         output_dir = output_base / dataset_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Compare each model vs QM
-        qm_comparison_results = []
-        pdf_path = output_dir / "benchmark_report.pdf"
+        # Compare each model vs QM -- parallel evaluation
+        n_workers = os.cpu_count() or 1
+        logger.info("  Evaluating with %d workers ...", n_workers)
 
+        # Build argument tuples for each molecule
+        futures_args = []
+        for mol_idx, rec in enumerate(records):
+            opt_mols = {
+                pot_name: optimized_results[pot_name][mol_idx]
+                for pot_name in potential_names
+            }
+            futures_args.append((
+                mol_idx,
+                rec.molecule,
+                opt_mols,
+                bond_thresh,
+                angle_thresh,
+                torsion_thresh,
+                rec.inchi_key,
+                rec.smiles,
+            ))
+
+        qm_comparison_results: list = [None] * len(records)
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            futures = {
+                executor.submit(_evaluate_one_molecule, *args): args[0]
+                for args in futures_args
+            }
+            for future in futures:
+                mol_idx, qm_comp = future.result()
+                qm_comparison_results[mol_idx] = qm_comp
+                logger.info(
+                    "  [%d/%d] %s  done",
+                    mol_idx + 1,
+                    len(records),
+                    records[mol_idx].smiles,
+                )
+
+        # Write per-molecule PDF report (sequential -- matplotlib is not
+        # process-safe for shared PdfPages)
+        pdf_path = output_dir / "benchmark_report.pdf"
         with PdfPages(str(pdf_path)) as pdf:
             title_parts = [
                 f"QM Benchmark Report: {dataset_name}",
@@ -208,31 +276,9 @@ def main(config_path: str | Path) -> None:
             ]
             create_title_page(pdf, "\n".join(title_parts))
 
-            for mol_idx, rec in enumerate(records):
-                logger.info(
-                    "  [%d/%d] %s  (%d conformers)",
-                    mol_idx + 1,
-                    len(records),
-                    rec.smiles,
-                    len(rec.record_ids),
-                )
-
-                opt_mols = {
-                    pot_name: optimized_results[pot_name][mol_idx]
-                    for pot_name in potential_names
-                }
-
-                qm_comp = evaluate_against_qm(
-                    rec.molecule,
-                    opt_mols,
-                    bond_threshold=bond_thresh,
-                    angle_threshold=angle_thresh,
-                    torsion_threshold=torsion_thresh,
-                    inchi_key=rec.inchi_key,
-                    smiles=rec.smiles,
-                )
-                qm_comparison_results.append(qm_comp)
-
+            for mol_idx, (rec, qm_comp) in enumerate(
+                zip(records, qm_comparison_results)
+            ):
                 create_qm_comparison_report(
                     rec.molecule,
                     rec.smiles,
@@ -243,6 +289,26 @@ def main(config_path: str | Path) -> None:
                 )
 
         logger.info("  PDF report: %s", pdf_path)
+
+        # --- Overall error statistics PDF ---
+        overall_stats = compute_overall_statistics(
+            qm_comparison_results, potential_names,
+        )
+        stats_pdf_path = output_dir / "error_statistics.pdf"
+        with PdfPages(str(stats_pdf_path)) as stats_pdf:
+            create_title_page(
+                stats_pdf,
+                f"Overall Error Statistics\n\n{dataset_name}\n\n"
+                f"Potentials: {', '.join(potential_names)}\n"
+                f"Molecules: {len(records)}",
+            )
+            create_statistics_report(
+                overall_stats,
+                potential_names,
+                stats_pdf,
+                dataset_name=dataset_name,
+            )
+        logger.info("  Statistics PDF: %s", stats_pdf_path)
 
         # Write CSV
         detail_csv, summary_csv = write_qm_comparison_csv(

@@ -5,7 +5,7 @@
         "../../01_download_datasets/outputs/optimization/OpenFF_NSP_Optimization_Set_1_Sulfur_v4_0_20260306T142817/OpenFF_NSP_Optimization_Set_1_Sulfur_v4_0.parquet"
     ],
     "output_directory": "../outputs/optimized",
-    "potential": {"type": "openmm_ml", "potential_name": "aceff-2.0"},
+    "potential": {"type": "openmm_ml", "potential_name": "aceff-2.0", "model_path": "../../../models/aceff_v2.0.ckpt"},
     "max_molecules": 100000,
     "max_conformers_per_molecule": 10
 }

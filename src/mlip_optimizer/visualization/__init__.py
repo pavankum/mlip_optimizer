@@ -10,6 +10,7 @@ from mlip_optimizer.visualization.drawing import asciify, draw_molecule
 from mlip_optimizer.visualization.reporting import (
     create_comparison_report,
     create_qm_comparison_report,
+    create_statistics_report,
     create_title_page,
 )
 
@@ -18,5 +19,6 @@ __all__ = [
     "draw_molecule",
     "create_comparison_report",
     "create_qm_comparison_report",
+    "create_statistics_report",
     "create_title_page",
 ]

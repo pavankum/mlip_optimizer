@@ -30,8 +30,10 @@ Install with ``pip install mlip-optimizer[qcarchive]`` then use::
 
 from mlip_optimizer.comparison import (
     ComparisonResult,
+    OverallErrorStatistics,
     QMComparisonMetrics,
     QMComparisonResult,
+    compute_overall_statistics,
     evaluate_against_qm,
     evaluate_model_pairs,
 )
@@ -87,6 +89,8 @@ __all__ = [
     "evaluate_model_pairs",
     "QMComparisonMetrics",
     "QMComparisonResult",
+    "OverallErrorStatistics",
+    "compute_overall_statistics",
     "evaluate_against_qm",
     "TorsionScanResult",
     "run_torsion_scan",
