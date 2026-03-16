@@ -22,7 +22,7 @@ JSON configuration
     {
         "smiles": "NC=O",
         "force_field": "openff-2.1.0",
-        "dihedral_index": 0,
+        "dihedral": [3, 0, 1, 5],
         "angle_start": -180,
         "angle_stop": 180,
         "angle_step": 15,
@@ -38,8 +38,8 @@ Fields:
 - **smiles** *(required)*: SMILES string for the molecule.
 - **force_field** *(required)*: OpenFF force-field name
   (e.g. ``"openff-2.1.0"``).
-- **dihedral_index** *(optional)*: Zero-based index into the
-  molecule's ``propers`` list.  Default ``0``.
+- **dihedral** *(required)*: List of four atom indices
+  ``[i, j, k, l]`` defining the torsion to scan.
 - **angle_start** / **angle_stop** / **angle_step** *(optional)*:
   Define the angle grid in degrees.  Defaults: ``-180``, ``180``, ``15``.
 - **methods** *(required)*: List of ``{"method": ..., "restraint_k": ...}``
@@ -109,14 +109,11 @@ def main(config_path: str | Path) -> None:
     mol.generate_conformers(n_conformers=1)
 
     # Select dihedral
-    propers = list(mol.propers)
-    dihedral_idx = config.get("dihedral_index", 0)
-    if dihedral_idx >= len(propers):
+    dihedral = tuple(config["dihedral"])
+    if len(dihedral) != 4:
         raise ValueError(
-            f"dihedral_index {dihedral_idx} out of range "
-            f"(molecule has {len(propers)} proper torsions)"
+            f"'dihedral' must have exactly 4 atom indices, got {len(dihedral)}"
         )
-    dihedral = tuple(a.molecule_atom_index for a in propers[dihedral_idx])
 
     mapped_smiles = mol.to_smiles(mapped=True)
     coordinates = mol.conformers[0].m_as("angstrom")

@@ -144,10 +144,7 @@ class OpenMMMLOptimizer:
         result = Molecule(molecule)
         off_topology = result.to_topology()
 
-        system = self._potential.createSystem(
-            off_topology.to_openmm(),
-            device=torch.device(self._device),
-        )
+        system = self._potential.createSystem(off_topology.to_openmm())
 
         original_conformers = list(result.conformers)
         result.clear_conformers()

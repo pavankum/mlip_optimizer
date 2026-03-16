@@ -22,8 +22,8 @@ JSON configuration
     {
         "smiles": "CCCC",
         "force_field": "openff-2.3.0",
-        "dihedral_index_1": 0,
-        "dihedral_index_2": 1,
+        "dihedral_1": [5, 0, 1, 8],
+        "dihedral_2": [0, 1, 2, 9],
         "angle_start": -180,
         "angle_stop": 180,
         "angle_step": 24,
@@ -37,8 +37,8 @@ Fields:
 
 - **smiles** *(required)*: SMILES string for the molecule.
 - **force_field** *(required)*: OpenFF force-field name.
-- **dihedral_index_1** / **dihedral_index_2** *(optional)*: Zero-based
-  indices into the molecule's ``propers`` list.  Defaults ``0`` and ``1``.
+- **dihedral_1** / **dihedral_2** *(required)*: Lists of four atom
+  indices ``[i, j, k, l]`` defining the two torsions to scan.
 - **angle_start** / **angle_stop** / **angle_step** *(optional)*:
   Define the angle grid (same for both dihedrals).
   Defaults: ``-180``, ``180``, ``24``.
@@ -108,17 +108,13 @@ def main(config_path: str | Path) -> None:
     mol.generate_conformers(n_conformers=1)
 
     # Select dihedrals
-    propers = list(mol.propers)
-    dih_idx_1 = config.get("dihedral_index_1", 0)
-    dih_idx_2 = config.get("dihedral_index_2", 1)
-    for label, idx in [("dihedral_index_1", dih_idx_1), ("dihedral_index_2", dih_idx_2)]:
-        if idx >= len(propers):
+    dihedral_1 = tuple(config["dihedral_1"])
+    dihedral_2 = tuple(config["dihedral_2"])
+    for label, dih in [("dihedral_1", dihedral_1), ("dihedral_2", dihedral_2)]:
+        if len(dih) != 4:
             raise ValueError(
-                f"{label} {idx} out of range "
-                f"(molecule has {len(propers)} proper torsions)"
+                f"'{label}' must have exactly 4 atom indices, got {len(dih)}"
             )
-    dihedral_1 = tuple(a.molecule_atom_index for a in propers[dih_idx_1])
-    dihedral_2 = tuple(a.molecule_atom_index for a in propers[dih_idx_2])
 
     mapped_smiles = mol.to_smiles(mapped=True)
     coordinates = mol.conformers[0].m_as("angstrom")

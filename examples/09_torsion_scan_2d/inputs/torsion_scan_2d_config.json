@@ -1,8 +1,8 @@
 {
     "smiles": "CCCC",
     "force_field": "openff-2.3.0",
-    "dihedral_index_1": 0,
-    "dihedral_index_2": 1,
+    "dihedral_1": [5, 0, 1, 8],
+    "dihedral_2": [0, 1, 2, 9],
     "angle_start": -180,
     "angle_stop": 180,
     "angle_step": 24,

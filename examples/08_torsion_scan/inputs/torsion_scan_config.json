@@ -1,7 +1,7 @@
 {
     "smiles": "NC=O",
     "force_field": "openff-2.3.0",
-    "dihedral_index": 0,
+    "dihedral": [3, 0, 1, 5],
     "angle_start": -180,
     "angle_stop": 180,
     "angle_step": 15,
