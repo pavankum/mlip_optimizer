@@ -29,8 +29,10 @@ class ASEOptimizer(ABC):
     fmax : float, optional
         Maximum force convergence threshold in eV/Angstrom.
         Default is ``0.05``.
-    device : str, optional
-        Compute device: ``"cpu"`` or ``"cuda"``.  Default is ``"cpu"``.
+    device : str or None, optional
+        Compute device: ``"cpu"`` or ``"cuda"``.  When ``None``
+        (default), automatically selects ``"cuda"`` if available,
+        otherwise ``"cpu"``.
     rattle : float, optional
         Random perturbation magnitude (Angstroms) applied to atom positions
         before optimization.  Helps escape shallow local minima near the
@@ -56,12 +58,12 @@ class ASEOptimizer(ABC):
     def __init__(
         self,
         fmax: float = 0.05,
-        device: str = "cpu",
+        device: str | None = None,
         rattle: float = 0.1,
         logfile: str | None = None,
     ) -> None:
         self._fmax = fmax
-        self._device = device
+        self._device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         self._rattle = rattle
         self._logfile = logfile
         self._calc: Calculator | None = None

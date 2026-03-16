@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import openmm
+import torch
 from openff.toolkit import Molecule
 from openff.units import unit
 from openmm import unit as omm_unit
@@ -66,6 +67,10 @@ class OpenMMMLOptimizer:
         downloading a built-in model.  See
         :data:`_GENERIC_NAME_FOR_LOCAL_MODEL` for supported potentials.
         When ``None`` (default) the built-in model is used.
+    device : str or None, optional
+        Torch device for the ML model: ``"cpu"``, ``"cuda"``, etc.
+        When ``None`` (default), automatically selects ``"cuda"`` if
+        available, otherwise ``"cpu"``.
     tolerance : float, optional
         Convergence tolerance in kJ/mol/nm.  Default is ``10.0``.
     max_iterations : int, optional
@@ -94,11 +99,13 @@ class OpenMMMLOptimizer:
         self,
         potential_name: str = "aceff-2.0",
         model_path: str | Path | None = None,
+        device: str | None = None,
         tolerance: float = 10.0,
         max_iterations: int = 0,
     ) -> None:
         self._potential_name = potential_name
         self._model_path = str(model_path) if model_path is not None else None
+        self._device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         self._tolerance = tolerance
         self._max_iterations = max_iterations
 
@@ -137,7 +144,10 @@ class OpenMMMLOptimizer:
         result = Molecule(molecule)
         off_topology = result.to_topology()
 
-        system = self._potential.createSystem(off_topology.to_openmm())
+        system = self._potential.createSystem(
+            off_topology.to_openmm(),
+            device=torch.device(self._device),
+        )
 
         original_conformers = list(result.conformers)
         result.clear_conformers()

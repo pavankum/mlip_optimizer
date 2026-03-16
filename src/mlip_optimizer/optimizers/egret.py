@@ -31,8 +31,10 @@ class EGRETOptimizer(ASEOptimizer):
     fmax : float, optional
         Maximum force convergence threshold in eV/Angstrom.
         Default is ``0.05``.
-    device : str, optional
-        Compute device: ``"cpu"`` or ``"cuda"``.  Default is ``"cpu"``.
+    device : str or None, optional
+        Compute device: ``"cpu"`` or ``"cuda"``.  When ``None``
+        (default), automatically selects ``"cuda"`` if available,
+        otherwise ``"cpu"``.
     rattle : float, optional
         Pre-optimization perturbation magnitude in Angstroms.
         Default is ``0.1``.
@@ -51,7 +53,7 @@ class EGRETOptimizer(ASEOptimizer):
         model_path: str,
         precision: str = "float64",
         fmax: float = 0.05,
-        device: str = "cpu",
+        device: str | None = None,
         rattle: float = 0.1,
     ) -> None:
         super().__init__(fmax=fmax, device=device, rattle=rattle)
