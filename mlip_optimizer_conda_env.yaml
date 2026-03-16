@@ -54,3 +54,6 @@ dependencies:
       - aimnet
       - huggingface_hub
       - fennol
+      - cuequivariance-torch
+      - cuequivariance-jax
+      - jaxlib[cuda13]
