@@ -1,0 +1,31 @@
+{
+    "potentials": [
+        {
+            "type": "openmm_ml",
+            "potential_name": "aceff-2.0",
+            "model_path": "../../../models/aceff_v2.0.ckpt"
+        },
+        {
+            "type": "openmm_ml",
+            "potential_name": "mace-off24-medium",
+            "model_path": "../../../models/MACE-OFF24_medium.model"
+        },
+        {
+            "type": "openmm_ml",
+            "potential_name": "fennix-bio1-medium-finetune-ions",
+            "model_path": "../../../models/fennix-bio1M-finetuneIons.fnx"
+        },
+        {
+            "type": "openmm_ml",
+            "potential_name": "mace-omol-0-extra-large"
+        },
+        {
+            "type": "openmm_ml",
+            "potential_name": "aimnet2"
+        },
+        {
+            "type": "openff",
+            "forcefield": "openff-2.3.0.offxml"
+        }
+    ]
+}
