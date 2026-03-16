@@ -1,0 +1,13 @@
+{
+    "smiles": "CCCC",
+    "force_field": "openff-2.3.0",
+    "dihedral_index_1": 0,
+    "dihedral_index_2": 1,
+    "angle_start": -180,
+    "angle_stop": 180,
+    "angle_step": 24,
+    "methods": [
+        {"method": "openmm_torsion_restrained", "restraint_k": 1.0}
+    ],
+    "output_directory": "../outputs"
+}
