@@ -64,6 +64,7 @@ class ASEOptimizer(ABC):
         self._device = device
         self._rattle = rattle
         self._logfile = logfile
+        self._calc: Calculator | None = None
 
     @property
     @abstractmethod
@@ -123,7 +124,9 @@ class ASEOptimizer(ABC):
         """
         original_dtype = torch.get_default_dtype()
         try:
-            calc = self._create_calculator()
+            if self._calc is None:
+                self._calc = self._create_calculator()
+            calc = self._calc
             result = Molecule(molecule)
             original_conformers = list(result.conformers)
             result.clear_conformers()
