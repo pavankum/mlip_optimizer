@@ -24,9 +24,10 @@ dependencies:
   - cmiles
   - qcfractal
 
-  # Machine learning potentials
-  - torchmd-net
-  - triton
+  # triton is installed via pip (see below) to match the PyTorch + CUDA 13.0
+  # build exactly; the conda-forge triton causes a 'triton_key' ImportError.
+  # torchmd-net is installed via pip (see below) so we can pin >=0.9.0, which
+  # is the first release that includes nvalchemiops.interactions.dispersion.dftd3.
 
   # Code quality
   - black
@@ -47,6 +48,22 @@ dependencies:
   - pip
 
   - pip:
+      # PyTorch + CUDA 13.0 wheels
+      # Use the PyTorch CUDA 13.0 index so that torch, torchvision, torchaudio,
+      # and triton all come from the same compatible build.
+      - --extra-index-url https://download.pytorch.org/whl/cu130
+      - torch
+      - torchvision
+      - torchaudio
+      # triton must be installed from the PyTorch wheel index (not conda-forge)
+      # to avoid 'triton_key' ImportError when used with CUDA 13.0 builds.
+      - triton
+
+      # torchmd-net: >=0.9.0 is required; earlier releases are missing the
+      # nvalchemiops.interactions.dispersion.dftd3 module that the aimnet2
+      # potential depends on.
+      - torchmd-net>=0.9.0
+
       # Machine learning potentials (pip-only)
       - mace-torch
       - git+https://github.com/openmm/openmm-ml.git@main
@@ -56,4 +73,6 @@ dependencies:
       - fennol
       - cuequivariance-torch
       - cuequivariance-jax
-      - jaxlib[cuda13]
+      # JAX with CUDA 13.0: 'jaxlib[cuda13]' is not a valid pip extra.
+      # Use 'jax[cuda13_pip]' to get JAX wheels built for CUDA 13.0.
+      - jax[cuda13_pip]
