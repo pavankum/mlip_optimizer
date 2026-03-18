@@ -97,7 +97,6 @@ cairosvg = "*"
 jupyter = "*"
 marimo = "*"
 pytorch = ">=2.8.0,<3"
-libtorch = "*"
 
 [tool.pixi.pypi-dependencies]
 # PyTorch ecosystem — torch itself is installed per-feature (CPU vs CUDA)
