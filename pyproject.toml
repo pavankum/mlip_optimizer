@@ -65,27 +65,45 @@ where = ["src"]
 # ---------------------------------------------------------------------------
 
 [tool.pixi.workspace]
-channels = ["pytorch", "nvidia", "conda-forge", "conda-forge/label/openmm_rc"]
+channels = ["conda-forge", "conda-forge/label/openmm_rc"]
 platforms = ["linux-64"]
 
 [tool.pixi.dependencies]
-# Python
+# Only packages that need conda (no reliable PyPI wheel)
 python = ">=3.11,<3.14"
-
-# Core scientific libraries
-numpy = "*"
-pyarrow = "*"
 rdkit = "*"
-ase = "*"
 
-# OpenMM and force fields
-openmm = "==8.5.0beta"
-openmmforcefields = "*"
-openff-toolkit = "==0.18.0"
-openff-forcefields = "*"
-openff-qcsubmit = "*"
+[tool.pixi.pypi-dependencies]
+# OpenFF stack (low-level deps first)
+openff-utilities = { git = "https://github.com/openforcefield/openff-utilities.git", tag = "v0.1.16" }
+openff-units = { git = "https://github.com/openforcefield/openff-units.git", tag = "0.3.2" }
+openff-toolkit = { git = "https://github.com/openforcefield/openff-toolkit.git", tag = "0.18.0" }
+openff-forcefields = { git = "https://github.com/openforcefield/openff-forcefields.git", tag = "2026.01.0" }
+openff-interchange = { git = "https://github.com/openforcefield/openff-interchange.git", tag = "v0.5.2" }
+openff-nagl-models = { git = "https://github.com/openforcefield/openff-nagl-models.git", tag = "v2025.09.0" }
+openff-nagl = { git = "https://github.com/openforcefield/openff-nagl.git", tag = "v0.5.4" }
+openff-qcsubmit = { git = "https://github.com/openforcefield/openff-qcsubmit.git", tag = "0.57.0" }
+openmmforcefields = { git = "https://github.com/openmm/openmmforcefields.git", tag = "0.15.1" }
+
+# Machine learning potentials
+torchmd-net = "*"
+mace-torch = "*"
+openmmml = { git = "https://github.com/openmm/openmm-ml.git", branch = "main" }
+yammbs = { git = "https://github.com/openforcefield/yammbs.git", branch = "main" }
+aimnet = "*"
+dftd3 = "*"
+huggingface-hub = "*"
+fennol = "*"
+
+# Misc dependencies
+python-constraint = "*"
+pyarrow = "*"
+xmltodict = "*"
+cachetools = "*"
 cmiles = "*"
 qcfractal = "*"
+numpy = "*"
+ase = "*"
 
 # Utilities
 tqdm = "*"
@@ -96,17 +114,9 @@ cairosvg = "*"
 # Notebook and visualization
 jupyter = "*"
 marimo = "*"
-pytorch = ">=2.8.0,<3"
 
-[tool.pixi.pypi-dependencies]
-# PyTorch ecosystem — torch itself is installed per-feature (CPU vs CUDA)
-torchmd-net = "*"
-mace-torch = "*"
-openmmml = { git = "https://github.com/openmm/openmm-ml.git", branch = "main" }
-yammbs = { git = "https://github.com/openforcefield/yammbs.git", branch = "main" }
-aimnet = "*"
-huggingface-hub = "*"
-fennol = "*"
+# Pre-release
+openmm = { version = "*", pip = true }
 
 # This project (editable install)
 mlip-optimizer = { path = ".", editable = true }
@@ -124,6 +134,7 @@ extra-index-urls = ["https://download.pytorch.org/whl/cu130"]
 
 [tool.pixi.feature.cuda.pypi-dependencies]
 torch = "*"
+nvidia-cuda-nvrtc = "*"
 cuequivariance-torch = "*"
 cuequivariance-jax = "*"
 jax = { version = "*", extras = ["cuda13"] }

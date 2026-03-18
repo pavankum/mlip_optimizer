@@ -1,40 +1,45 @@
-#PyTorch with CUDA 13 — install FIRST so all deps see it
-torch --index-url https://download.pytorch.org/whl/cu130
+# PyTorch CUDA 13 wheel index (checked alongside default PyPI)
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+# PyTorch with CUDA 13
+torch
 nvidia-cuda-nvrtc
 
-#Machine learning potentials (pip-only)
+# OpenFF stack (low-level deps first)
+git+https://github.com/openforcefield/openff-utilities.git@v0.1.16
+git+https://github.com/openforcefield/openff-units.git@0.3.2
+git+https://github.com/openforcefield/openff-toolkit.git@0.18.0
+git+https://github.com/openforcefield/openff-forcefields.git@2026.01.0
+git+https://github.com/openforcefield/openff-interchange.git@v0.5.2
+git+https://github.com/openforcefield/openff-nagl-models.git@v2025.09.0
+git+https://github.com/openforcefield/openff-nagl.git@v0.5.4
+git+https://github.com/openforcefield/openff-qcsubmit.git@0.57.0
+git+https://github.com/openmm/openmmforcefields.git@0.15.1
+
+# Machine learning potentials
 torchmd-net
 mace-torch
 git+https://github.com/openmm/openmm-ml.git@main
 git+https://github.com/openforcefield/yammbs.git@main
-git+https://github.com/openforcefield/openff-toolkit.git@0.18.0
-git+https://github.com/openforcefield/openff-forcefields.git@2026.01.0
-git+https://github.com/openmm/openmmforcefields.git@0.15.1
-git+https://github.com/openforcefield/openff-qcsubmit.git@0.57.0
-git+https://github.com/openforcefield/openff-utilities.git@v0.1.16
-git+https://github.com/openforcefield/openff-units.git@0.3.2
-git+https://github.com/openforcefield/openff-nagl-models.git@v2025.09.0
-git+https://github.com/openforcefield/openff-nagl.git@v0.5.4
-git+https://github.com/openforcefield/openff-interchange.git@v0.5.2
+aimnet
+huggingface_hub
+fennol
+
+# JAX with CUDA 13
+jax[cuda13]
+jaxlib[cuda13]
+
+# cuequivariance
+cuequivariance-torch
+cuequivariance-jax
+
+# Misc dependencies
 python-constraint
 pyarrow
 xmltodict
 cachetools
 cmiles
 qcfractal
-aimnet
-dftd3
-huggingface_hub
-fennol
-
-#JAX with CUDA 13
-jax[cuda13]
-jaxlib[cuda13]
-
-#cuequivariance
-cuequivariance-torch
-cuequivariance-jax
-
 
 # Utilities
 tqdm
@@ -42,5 +47,6 @@ click
 tabulate
 cairosvg
 
+# Pre-release packages
 --pre
 openmm
