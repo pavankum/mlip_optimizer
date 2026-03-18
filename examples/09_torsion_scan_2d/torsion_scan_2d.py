@@ -20,10 +20,10 @@ JSON configuration
 ::
 
     {
-        "smiles": "CCCC",
+        "smiles": "C[C@@H](C(=O)N[C@@H](C)C(=O)O)N",
         "force_field": "openff-2.3.0",
-        "dihedral_1": [5, 0, 1, 8],
-        "dihedral_2": [0, 1, 2, 9],
+        "dihedral_1": [2, 4, 5, 7],
+        "dihedral_2": [10, 1, 2, 4],
         "angle_start": -180,
         "angle_stop": 180,
         "angle_step": 24,

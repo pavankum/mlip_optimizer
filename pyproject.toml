@@ -59,3 +59,69 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# ---------------------------------------------------------------------------
+# Pixi configuration
+# ---------------------------------------------------------------------------
+
+[tool.pixi.project]
+channels = ["conda-forge", "conda-forge/label/openmm_rc"]
+platforms = ["linux-64"]
+
+[tool.pixi.dependencies]
+# Python
+python = ">=3.11,<3.14"
+
+# Core scientific libraries
+numpy = "*"
+pyarrow = "*"
+rdkit = "*"
+ase = "*"
+
+# OpenMM and force fields
+openmm = "8.5.0beta"
+openmmforcefields = "*"
+openff-toolkit = "0.18.0"
+openff-forcefields = "*"
+openff-qcsubmit = "*"
+cmiles = "*"
+qcfractal = "*"
+
+# Utilities
+tqdm = "*"
+click = "*"
+tabulate = "*"
+cairosvg = "*"
+
+# Notebook and visualization
+jupyter = "*"
+marimo = "*"
+
+[tool.pixi.pypi-dependencies]
+# PyTorch ecosystem — all from PyPI to avoid conda/pip conflicts
+torch = "*"
+torchmd-net = "*"
+mace-torch = "*"
+openmmml = { git = "https://github.com/openmm/openmm-ml.git", branch = "main" }
+yammbs = { git = "https://github.com/openforcefield/yammbs.git", branch = "main" }
+aimnet = "*"
+huggingface-hub = "*"
+fennol = "*"
+
+# This project (editable install)
+mlip-optimizer = { path = ".", editable = true }
+
+# --- CUDA feature for GPU nodes ---
+[tool.pixi.feature.cuda.system-requirements]
+cuda = "13"
+
+[tool.pixi.feature.cuda.pypi-dependencies]
+cuequivariance-torch = "*"
+cuequivariance-jax = "*"
+jax = { version = "*", extras = ["cuda13"] }
+jaxlib = { version = "*", extras = ["cuda13"] }
+
+# --- Environments ---
+[tool.pixi.environments]
+default = { solve-group = "default" }
+cuda = { features = ["cuda"], solve-group = "default" }
