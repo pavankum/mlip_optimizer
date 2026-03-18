@@ -22,6 +22,7 @@ mace-torch
 git+https://github.com/openmm/openmm-ml.git@main
 git+https://github.com/openforcefield/yammbs.git@main
 aimnet
+nvalchemi-toolkit-ops==0.2.0
 huggingface_hub
 fennol
 

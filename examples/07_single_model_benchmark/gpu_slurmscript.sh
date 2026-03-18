@@ -18,7 +18,7 @@
 
 source ~/.bashrc
 start=`date +%s`
-conda activate /dfs9/dmobley-lab/pbehara/conda-env/mlip_optimizer
+conda activate /dfs9/dmobley-lab/pbehara/conda-env/mlip_optimizer_gpu
 
 python optimize_single_model.py ./inputs/CONFIG_JSON
 

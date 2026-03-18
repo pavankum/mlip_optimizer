@@ -7,8 +7,7 @@
         },
         {
             "type": "openmm_ml",
-            "potential_name": "mace-off24-medium",
-            "model_path": "../../../models/MACE-OFF24_medium.model"
+            "potential_name": "mace-off24-medium"
         },
         {
             "type": "openmm_ml",
