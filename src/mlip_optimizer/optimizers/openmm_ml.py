@@ -149,6 +149,10 @@ class OpenMMMLOptimizer:
         original_conformers = list(result.conformers)
         result.clear_conformers()
 
+        platform = openmm.Platform.getPlatformByName(
+            "CUDA" if self._device.startswith("cuda") else "CPU"
+        )
+
         for conformer in original_conformers:
             positions = conformer.m_as(unit.nanometer)
 
@@ -157,7 +161,7 @@ class OpenMMMLOptimizer:
                 1.0 / omm_unit.picoseconds,
                 1.0 * omm_unit.femtosecond,
             )
-            simulation = Simulation(off_topology.to_openmm(), system, integrator)
+            simulation = Simulation(off_topology.to_openmm(), system, integrator, platform)
             simulation.context.setPositions(positions)
 
             simulation.minimizeEnergy(
