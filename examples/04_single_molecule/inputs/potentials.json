@@ -2,12 +2,12 @@
     "potentials": [
         {
             "type": "openmm_ml",
-            "potential_name": "aceff-2.0",
-            "model_path": "../../../models/aceff_v2.0.ckpt"
+            "potential_name": "mace-off24-medium",
         },
         {
             "type": "openmm_ml",
-            "potential_name": "mace-off24-medium"
+            "potential_name": "aceff-2.0",
+            "model_path": "../../../models/aceff_v2.0.ckpt"
         },
         {
             "type": "openmm_ml",
