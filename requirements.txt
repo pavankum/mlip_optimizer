@@ -1,7 +1,7 @@
-# PyTorch CUDA 13 wheel index (checked alongside default PyPI)
---extra-index-url https://download.pytorch.org/whl/cu130
+# PyTorch CUDA 12.9 wheel index
+--extra-index-url https://download.pytorch.org/whl/cu129
 
-# PyTorch with CUDA 13
+# PyTorch with CUDA 12.9
 torch
 nvidia-cuda-nvrtc
 
@@ -26,9 +26,9 @@ nvalchemi-toolkit-ops==0.2.0
 huggingface_hub
 fennol
 
-# JAX with CUDA 13
-jax[cuda13]
-jaxlib[cuda13]
+# JAX with CUDA 12
+jax[cuda12]
+jaxlib[cuda12]
 
 # cuequivariance
 cuequivariance-torch

@@ -91,7 +91,7 @@ mace-torch = "*"
 openmmml = { git = "https://github.com/openmm/openmm-ml.git", branch = "main" }
 yammbs = { git = "https://github.com/openforcefield/yammbs.git", branch = "main" }
 aimnet = "*"
-dftd3 = "*"
+nvalchemi-toolkit-ops = "==0.2.0"
 huggingface-hub = "*"
 fennol = "*"
 
@@ -127,18 +127,18 @@ torch = "*"
 
 # --- CUDA feature for GPU nodes ---
 [tool.pixi.feature.cuda.system-requirements]
-cuda = "13"
+cuda = "12.9"
 
 [tool.pixi.feature.cuda.pypi-options]
-extra-index-urls = ["https://download.pytorch.org/whl/cu130"]
+extra-index-urls = ["https://download.pytorch.org/whl/cu129"]
 
 [tool.pixi.feature.cuda.pypi-dependencies]
 torch = "*"
 nvidia-cuda-nvrtc = "*"
 cuequivariance-torch = "*"
 cuequivariance-jax = "*"
-jax = { version = "*", extras = ["cuda13"] }
-jaxlib = { version = "*", extras = ["cuda13"] }
+jax = { version = "*", extras = ["cuda12"] }
+jaxlib = { version = "*", extras = ["cuda12"] }
 
 # --- Environments ---
 [tool.pixi.environments]
