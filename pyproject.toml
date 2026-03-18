@@ -135,6 +135,7 @@ extra-index-urls = ["https://download.pytorch.org/whl/cu129"]
 [tool.pixi.feature.cuda.pypi-dependencies]
 torch = "*"
 nvidia-cuda-nvrtc = "*"
+openmm-cuda-12 = "*"
 cuequivariance-torch = "*"
 cuequivariance-jax = "*"
 jax = { version = "*", extras = ["cuda12"] }
