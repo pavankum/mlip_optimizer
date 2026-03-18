@@ -51,3 +51,4 @@ cairosvg
 # Pre-release packages
 --pre
 openmm
+OpenMM-CUDA-12
