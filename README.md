@@ -6,6 +6,50 @@ Molecular geometry optimization using ML interatomic potentials, built on
 
 ## Installation
 
+### Using Pixi (recommended)
+
+[Pixi](https://pixi.sh) manages both conda and PyPI dependencies from a
+single `pyproject.toml` and avoids the conda/pip version conflicts that
+commonly affect the PyTorch + OpenMM stack.
+
+```bash
+# Install pixi (if not already installed)
+curl -fsSL https://pixi.sh/install.sh | bash
+
+# CPU-only (laptop / login node)
+pixi install
+
+# GPU with CUDA 13 (cluster nodes)
+pixi install -e cuda
+```
+
+After installation, activate the environment with:
+
+```bash
+# CPU
+pixi shell
+
+# GPU
+pixi shell -e cuda
+```
+
+Then run any example:
+
+```bash
+# Single molecule optimization
+python examples/04_single_molecule/single_molecule.py
+
+# 2-D torsion scan
+python examples/09_torsion_scan_2d/torsion_scan_2d.py \
+    examples/09_torsion_scan_2d/inputs/torsion_scan_2d_config.json
+
+# Or use pixi run without entering the shell
+pixi run python examples/04_single_molecule/single_molecule.py
+pixi run -e cuda python examples/04_single_molecule/single_molecule.py
+```
+
+### Using pip
+
 ```bash
 # Core (OpenFF + OpenMM-ML)
 pip install -e .
