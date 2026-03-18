@@ -149,15 +149,12 @@ class OpenMMMLOptimizer:
         original_conformers = list(result.conformers)
         result.clear_conformers()
 
-        # MACE TorchScript models create their own CUDA context that
-        # conflicts with both the OpenMM CUDA and OpenCL platforms,
-        # causing "invalid resource handle" errors.  Force the CPU
-        # platform for MACE; the TorchForce still evaluates the model
-        # on GPU via PyTorch — the OpenMM platform only governs the
-        # lightweight minimizer bookkeeping.
+        # MACE TorchScript models conflict with the OpenMM CUDA platform,
+        # causing "invalid resource handle" errors.  Use OpenCL for MACE
+        # instead — the TorchForce still evaluates on GPU via PyTorch.
         _is_mace = self._potential_name.startswith("mace")
         if _is_mace:
-            platform = openmm.Platform.getPlatformByName("CPU")
+            platform = openmm.Platform.getPlatformByName("OpenCL")
         elif self._device.startswith("cuda"):
             platform = openmm.Platform.getPlatformByName("CUDA")
         else:
