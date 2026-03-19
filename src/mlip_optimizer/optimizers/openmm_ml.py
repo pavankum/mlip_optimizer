@@ -175,18 +175,38 @@ class OpenMMMLOptimizer:
             off_topology.to_openmm(), system, integrator, platform,
         )
 
-        for conformer in original_conformers:
+        for conf_idx, conformer in enumerate(original_conformers):
             positions = conformer.m_as(unit.nanometer)
             simulation.context.setPositions(positions)
 
-            simulation.minimizeEnergy(
-                tolerance=(
-                    self._tolerance
-                    * omm_unit.kilojoule_per_mole
-                    / omm_unit.nanometer
-                ),
-                maxIterations=self._max_iterations,
-            )
+            try:
+                simulation.minimizeEnergy(
+                    tolerance=(
+                        self._tolerance
+                        * omm_unit.kilojoule_per_mole
+                        / omm_unit.nanometer
+                    ),
+                    maxIterations=self._max_iterations,
+                )
+            except Exception as e:
+                import numpy as np
+                state = simulation.context.getState(
+                    getPositions=True, getEnergy=True, getForces=True,
+                )
+                pos = state.getPositions(asNumpy=True)
+                energy = state.getPotentialEnergy()
+                forces = state.getForces(asNumpy=True)
+                has_nan_pos = np.any(np.isnan(pos))
+                max_force = np.max(np.linalg.norm(forces, axis=1))
+                raise type(e)(
+                    f"{e}\n"
+                    f"  Conformer index: {conf_idx}\n"
+                    f"  Potential energy: {energy}\n"
+                    f"  NaN in positions: {has_nan_pos}\n"
+                    f"  Max force norm:   {max_force}\n"
+                    f"  Potential:        {self._potential_name}\n"
+                    f"  Platform:         {platform.getName()}"
+                ) from e
 
             optimized_coords = (
                 simulation.context.getState(getPositions=True)
