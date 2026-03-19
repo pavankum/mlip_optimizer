@@ -219,5 +219,9 @@ class OpenMMMLOptimizer:
         # with stale CUDA handles.
         del simulation.context
         del simulation
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         return result
