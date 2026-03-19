@@ -149,14 +149,17 @@ class OpenMMMLOptimizer:
         original_conformers = list(result.conformers)
         result.clear_conformers()
 
-        # MACE TorchScript models conflict with the OpenMM CUDA platform
-        # during iterative minimization (repeated TorchScript calls),
-        # causing "invalid resource handle" errors.  The openmm-ml test
-        # suite only evaluates energy once per context and does not
-        # trigger this.  Use OpenCL for MACE — the TorchForce still
-        # evaluates the model on GPU via PyTorch.
-        _is_mace = self._potential_name.startswith("mace")
-        if _is_mace:
+        # TorchScript-based models (MACE, AceFF/TorchMDNet) conflict
+        # with the OpenMM CUDA platform during iterative minimization
+        # (repeated TorchScript calls), causing "invalid resource
+        # handle" or empty OpenMMException errors.  Use OpenCL for
+        # these — the TorchForce still evaluates the model on GPU via
+        # PyTorch.
+        _uses_torchscript = self._potential_name.startswith("mace") or (
+            self._potential_name
+            in ("aceff-1.0", "aceff-1.1", "aceff-2.0", "torchmdnet")
+        )
+        if _uses_torchscript and self._device.startswith("cuda"):
             platform = openmm.Platform.getPlatformByName("OpenCL")
         elif self._device.startswith("cuda"):
             platform = openmm.Platform.getPlatformByName("CUDA")
@@ -190,23 +193,28 @@ class OpenMMMLOptimizer:
                 )
             except Exception as e:
                 import numpy as np
-                state = simulation.context.getState(
-                    getPositions=True, getEnergy=True, getForces=True,
-                )
-                pos = state.getPositions(asNumpy=True)
-                energy = state.getPotentialEnergy()
-                forces = state.getForces(asNumpy=True)
-                has_nan_pos = np.any(np.isnan(pos))
-                max_force = np.max(np.linalg.norm(forces, axis=1))
-                raise type(e)(
-                    f"{e}\n"
+                diag = (
                     f"  Conformer index: {conf_idx}\n"
-                    f"  Potential energy: {energy}\n"
-                    f"  NaN in positions: {has_nan_pos}\n"
-                    f"  Max force norm:   {max_force}\n"
                     f"  Potential:        {self._potential_name}\n"
                     f"  Platform:         {platform.getName()}"
-                ) from e
+                )
+                try:
+                    state = simulation.context.getState(
+                        getPositions=True, getEnergy=True, getForces=True,
+                    )
+                    pos = state.getPositions(asNumpy=True)
+                    energy = state.getPotentialEnergy()
+                    forces = state.getForces(asNumpy=True)
+                    has_nan_pos = bool(np.any(np.isnan(pos)))
+                    max_force = float(np.max(np.linalg.norm(forces, axis=1)))
+                    diag += (
+                        f"\n  Potential energy: {energy}"
+                        f"\n  NaN in positions: {has_nan_pos}"
+                        f"\n  Max force norm:   {max_force}"
+                    )
+                except Exception:
+                    diag += "\n  (context state unavailable — likely CUDA error)"
+                raise type(e)(f"{e}\n{diag}") from e
 
             optimized_coords = (
                 simulation.context.getState(getPositions=True)
