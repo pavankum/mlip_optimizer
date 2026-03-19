@@ -11,8 +11,10 @@ using any of the supported ML interatomic potentials:
 
 from __future__ import annotations
 
+import gc
 from pathlib import Path
 
+import numpy as np
 import openmm
 import torch
 from openff.toolkit import Molecule
@@ -20,6 +22,7 @@ from openff.units import unit
 from openmm import unit as omm_unit
 from openmm.app import Simulation
 from openmmml import MLPotential
+from scipy.optimize import minimize as scipy_minimize
 
 # Mapping from potential name to the generic ``MLPotential`` name that
 # accepts a ``modelPath`` keyword for loading a user-supplied checkpoint.
@@ -131,6 +134,63 @@ class OpenMMMLOptimizer:
         """
         return MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
 
+    @staticmethod
+    def _system_uses_python_force(system: openmm.System) -> bool:
+        """Return True if *system* contains an ``openmm.PythonForce``."""
+        for i in range(system.getNumForces()):
+            if type(system.getForce(i)).__name__ == "PythonForce":
+                return True
+        return False
+
+    @staticmethod
+    def _scipy_minimize(
+        context: openmm.Context,
+        tolerance: float,
+        max_iterations: int,
+    ) -> None:
+        """Minimize energy using scipy L-BFGS-B via the OpenMM Context.
+
+        ``LocalEnergyMinimizer`` (C++) cannot propagate Python exceptions
+        raised inside a ``PythonForce`` callback — it emits an empty
+        ``OpenMMException`` and corrupts the context.  This method
+        avoids the C++ minimizer entirely: it reads energy/forces with
+        ``getState()`` and writes positions with ``setPositions()``,
+        letting scipy drive L-BFGS-B in Python space.
+        """
+        n_atoms = context.getSystem().getNumParticles()
+        n_dof = n_atoms * 3
+
+        # Units: positions in nm, energy in kJ/mol, forces in kJ/mol/nm.
+        def _objective(x: np.ndarray):
+            positions = x.reshape(n_atoms, 3)
+            context.setPositions(positions)
+            state = context.getState(getEnergy=True, getForces=True)
+            energy = state.getPotentialEnergy().value_in_unit(
+                omm_unit.kilojoule_per_mole,
+            )
+            forces = state.getForces(asNumpy=True).value_in_unit(
+                omm_unit.kilojoule_per_mole / omm_unit.nanometer,
+            )
+            grad = -forces.flatten()  # gradient = -force
+            return energy, grad
+
+        state0 = context.getState(getPositions=True)
+        x0 = state0.getPositions(asNumpy=True).value_in_unit(
+            omm_unit.nanometer,
+        ).flatten()
+
+        # tolerance is in kJ/mol/nm (force units); scipy's ftol/gtol
+        # are dimensionless but gtol maps to the max gradient component.
+        opts: dict = {"maxiter": max_iterations if max_iterations > 0 else 15000}
+        opts["gtol"] = tolerance
+
+        result = scipy_minimize(
+            _objective, x0, method="L-BFGS-B", jac=True, options=opts,
+        )
+
+        # Write final positions back into the context.
+        context.setPositions(result.x.reshape(n_atoms, 3))
+
     @property
     def name(self) -> str:
         """Name of the ML potential."""
@@ -158,6 +218,14 @@ class OpenMMMLOptimizer:
 
         potential = self._create_potential()
         system = potential.createSystem(off_topology.to_openmm())
+
+        # AceFF / TorchMDNet models are numerically fragile: the C++
+        # LocalEnergyMinimizer's L-BFGS line search visits geometries
+        # where the model throws, producing an empty OpenMMException
+        # and corrupting the context.  Use scipy L-BFGS-B for these.
+        _use_scipy = self._potential_name in (
+            "aceff-1.0", "aceff-1.1", "aceff-2.0", "torchmdnet",
+        )
 
         original_conformers = list(result.conformers)
         result.clear_conformers()
@@ -193,20 +261,27 @@ class OpenMMMLOptimizer:
             simulation.context.setPositions(positions)
 
             try:
-                simulation.minimizeEnergy(
-                    tolerance=(
-                        self._tolerance
-                        * omm_unit.kilojoule_per_mole
-                        / omm_unit.nanometer
-                    ),
-                    maxIterations=self._max_iterations,
-                )
+                if _use_scipy:
+                    self._scipy_minimize(
+                        simulation.context,
+                        self._tolerance,
+                        self._max_iterations,
+                    )
+                else:
+                    simulation.minimizeEnergy(
+                        tolerance=(
+                            self._tolerance
+                            * omm_unit.kilojoule_per_mole
+                            / omm_unit.nanometer
+                        ),
+                        maxIterations=self._max_iterations,
+                    )
             except Exception as e:
-                import numpy as np
                 diag = (
                     f"  Conformer index: {conf_idx}\n"
                     f"  Potential:        {self._potential_name}\n"
-                    f"  Platform:         {platform.getName()}"
+                    f"  Platform:         {platform.getName()}\n"
+                    f"  Scipy minimize:   {_use_scipy}"
                 )
                 try:
                     state = simulation.context.getState(
@@ -240,7 +315,6 @@ class OpenMMMLOptimizer:
             torch.cuda.synchronize()
         del simulation.context
         del simulation
-        import gc
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
