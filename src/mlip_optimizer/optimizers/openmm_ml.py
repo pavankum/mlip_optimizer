@@ -109,15 +109,27 @@ class OpenMMMLOptimizer:
         self._tolerance = tolerance
         self._max_iterations = max_iterations
 
-        # When a local model file is provided, swap to the generic loader
-        # name so MLPotential routes through the local-file code path.
-        init_kwargs: dict = {}
+        # Resolve the generic loader name and kwargs once so that
+        # _create_potential() can recreate the MLPotential cheaply.
+        self._ml_potential_name = potential_name
+        self._ml_potential_kwargs: dict = {}
         if self._model_path is not None:
             generic = _GENERIC_NAME_FOR_LOCAL_MODEL.get(potential_name)
             if generic is not None:
-                potential_name = generic
-                init_kwargs["modelPath"] = self._model_path
-        self._potential = MLPotential(potential_name, **init_kwargs)
+                self._ml_potential_name = generic
+                self._ml_potential_kwargs["modelPath"] = self._model_path
+
+    def _create_potential(self) -> MLPotential:
+        """Create a fresh ``MLPotential`` instance.
+
+        TorchScript-based models (MACE, AceFF/TorchMDNet) cache GPU
+        tensors keyed to the atom count of the first molecule.  When a
+        second molecule with a different atom count is optimized, the
+        stale cache causes empty ``OpenMMException`` errors.  Recreating
+        the ``MLPotential`` per ``optimize()`` call gives a clean
+        TorchScript model each time.
+        """
+        return MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
 
     @property
     def name(self) -> str:
@@ -144,22 +156,20 @@ class OpenMMMLOptimizer:
         result = Molecule(molecule)
         off_topology = result.to_topology()
 
-        system = self._potential.createSystem(off_topology.to_openmm())
+        potential = self._create_potential()
+        system = potential.createSystem(off_topology.to_openmm())
 
         original_conformers = list(result.conformers)
         result.clear_conformers()
 
-        # TorchScript-based models (MACE, AceFF/TorchMDNet) conflict
-        # with the OpenMM CUDA platform during iterative minimization
-        # (repeated TorchScript calls), causing "invalid resource
-        # handle" or empty OpenMMException errors.  Use OpenCL for
-        # these — the TorchForce still evaluates the model on GPU via
-        # PyTorch.
-        _uses_torchscript = self._potential_name.startswith("mace") or (
-            self._potential_name
-            in ("aceff-1.0", "aceff-1.1", "aceff-2.0", "torchmdnet")
-        )
-        if _uses_torchscript and self._device.startswith("cuda"):
+        # MACE TorchScript models conflict with the OpenMM CUDA
+        # platform during iterative minimization (repeated TorchScript
+        # calls), causing "invalid resource handle" errors.  Use
+        # OpenCL for MACE — the TorchForce still evaluates the model
+        # on GPU via PyTorch.  Other TorchScript models (AceFF/
+        # TorchMDNet) work fine on CUDA and OpenCL is ~2x slower for
+        # them.
+        if self._potential_name.startswith("mace") and self._device.startswith("cuda"):
             platform = openmm.Platform.getPlatformByName("OpenCL")
         elif self._device.startswith("cuda"):
             platform = openmm.Platform.getPlatformByName("CUDA")
@@ -224,7 +234,10 @@ class OpenMMMLOptimizer:
 
         # Explicitly release GPU resources so that subsequent optimizers
         # (possibly using a different TorchScript model) do not collide
-        # with stale CUDA handles.
+        # with stale CUDA handles.  Synchronize first to ensure all
+        # pending CUDA kernels complete before tearing down the context.
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         del simulation.context
         del simulation
         import gc
