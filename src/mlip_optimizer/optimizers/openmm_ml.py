@@ -149,9 +149,16 @@ class OpenMMMLOptimizer:
         original_conformers = list(result.conformers)
         result.clear_conformers()
 
-        # Avoid OpenCL — it can conflict with PyTorch's CUDA context for
-        # TorchScript-based ML potentials.  Use CUDA when available.
-        if self._device.startswith("cuda"):
+        # MACE TorchScript models conflict with the OpenMM CUDA platform
+        # during iterative minimization (repeated TorchScript calls),
+        # causing "invalid resource handle" errors.  The openmm-ml test
+        # suite only evaluates energy once per context and does not
+        # trigger this.  Use OpenCL for MACE — the TorchForce still
+        # evaluates the model on GPU via PyTorch.
+        _is_mace = self._potential_name.startswith("mace")
+        if _is_mace:
+            platform = openmm.Platform.getPlatformByName("OpenCL")
+        elif self._device.startswith("cuda"):
             platform = openmm.Platform.getPlatformByName("CUDA")
         else:
             platform = openmm.Platform.getPlatformByName("CPU")
@@ -186,5 +193,11 @@ class OpenMMMLOptimizer:
                 .getPositions(asNumpy=True)
             )
             result.add_conformer(optimized_coords * unit.nanometer)
+
+        # Explicitly release GPU resources so that subsequent optimizers
+        # (possibly using a different TorchScript model) do not collide
+        # with stale CUDA handles.
+        del simulation.context
+        del simulation
 
         return result
