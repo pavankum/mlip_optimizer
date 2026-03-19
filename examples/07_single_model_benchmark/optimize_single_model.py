@@ -154,9 +154,10 @@ def main(config_path: str | Path) -> None:
             logger.warning("  No molecules -- skipping.")
             continue
 
-        # Optimize each molecule, preserving order
-        optimized: list[Molecule] = []
-        failed = False
+        # Optimize each molecule, preserving order.  Failed molecules are
+        # stored as None so that MOLECULE_IDX stays aligned with records.
+        optimized: list[Molecule | None] = []
+        n_failed = 0
         for mol_idx, rec in enumerate(records):
             logger.info(
                 "  [%d/%d] %s  (%d conformers)",
@@ -168,13 +169,20 @@ def main(config_path: str | Path) -> None:
             try:
                 opt_mol = optimizer.optimize(rec.molecule) # type: ignore
             except Exception as exc:
-                logger.error("    Failed: %s -- aborting dataset", exc)
-                failed = True
-                break
+                logger.error("    Failed: %s -- skipping molecule", exc)
+                optimized.append(None)
+                n_failed += 1
+                continue
             optimized.append(opt_mol)
 
-        if failed:
-            logger.warning("  Skipping SDF output for %s due to failure.", dataset_name)
+        if n_failed:
+            logger.warning(
+                "  %d/%d molecules failed for %s",
+                n_failed, len(records), dataset_name,
+            )
+
+        if all(m is None for m in optimized):
+            logger.warning("  All molecules failed for %s -- skipping SDF output.", dataset_name)
             continue
 
         # Write output SDF into a dataset-specific subdirectory

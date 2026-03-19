@@ -45,7 +45,7 @@ class ComparisonResult:
 
 
 def evaluate_model_pairs(
-    optimized_results: dict[str, Molecule],
+    optimized_results: dict[str, Molecule | None],
     reference_molecule: Molecule,
     model_pairs: list[tuple[str, str]],
     *,
@@ -62,9 +62,10 @@ def evaluate_model_pairs(
 
     Parameters
     ----------
-    optimized_results : dict[str, Molecule]
+    optimized_results : dict[str, Molecule | None]
         Map from optimizer name to optimized molecule.  All molecules
-        must have the same number of conformers.
+        must have the same number of conformers.  ``None`` entries
+        indicate failed optimizations and their pairs are skipped.
     reference_molecule : Molecule
         The original (pre-optimization) molecule, used to determine
         the number of conformers to iterate over.
@@ -103,12 +104,14 @@ def evaluate_model_pairs(
     for conf_idx in range(n_conformers):
         # Compute geometry for each model at this conformer
         geom_data = {}
-        for model_name in optimized_results:
-            geom_data[model_name] = get_conformer_geometry(
-                optimized_results[model_name], conf_idx
-            )
+        for model_name, mol in optimized_results.items():
+            if mol is None:
+                continue
+            geom_data[model_name] = get_conformer_geometry(mol, conf_idx)
 
         for model1, model2 in model_pairs:
+            if model1 not in geom_data or model2 not in geom_data:
+                continue
             geom1 = geom_data[model1]
             geom2 = geom_data[model2]
 
@@ -249,6 +252,23 @@ class QMComparisonMetrics:
     bond_diffs: dict[tuple, float]
     angle_diffs: dict[tuple, float]
     torsion_diffs: dict[tuple, float]
+    opt_failed: bool = False
+
+
+# Sentinel instance for potentials whose optimization failed.
+OPT_FAILED_METRICS = QMComparisonMetrics(
+    rmsd=float("nan"),
+    max_bond_diff=float("nan"),
+    mean_bond_diff=float("nan"),
+    max_angle_diff=float("nan"),
+    mean_angle_diff=float("nan"),
+    max_torsion_diff=float("nan"),
+    mean_torsion_diff=float("nan"),
+    bond_diffs={},
+    angle_diffs={},
+    torsion_diffs={},
+    opt_failed=True,
+)
 
 
 @dataclass
@@ -292,7 +312,7 @@ class QMComparisonResult:
 
 def evaluate_against_qm(
     qm_molecule: Molecule,
-    optimized_molecules: dict[str, Molecule],
+    optimized_molecules: dict[str, Molecule | None],
     *,
     heavy_atoms_only: bool = True,
     bond_threshold: float = 0.1,
@@ -349,6 +369,16 @@ def evaluate_against_qm(
         name: [] for name in potential_names
     }
 
+    # Identify potentials whose optimization failed (None entry).
+    # Mark them with OPT_FAILED_METRICS for every conformer.
+    failed_potentials: set[str] = set()
+    for pot_name in potential_names:
+        if optimized_molecules[pot_name] is None:
+            failed_potentials.add(pot_name)
+            per_potential[pot_name] = [
+                OPT_FAILED_METRICS for _ in range(n_conformers)
+            ]
+
     # Accumulate per-key diffs for aggregation:
     # {param_key: {pot_name: [diff_values_per_conf]}}
     bond_accum: dict[tuple, dict[str, list[float]]] = {}
@@ -372,6 +402,9 @@ def evaluate_against_qm(
             torsion_ref_accum.setdefault(key, []).append(val)
 
         for pot_name in potential_names:
+            if pot_name in failed_potentials:
+                continue
+
             opt_mol = optimized_molecules[pot_name]
 
             rmsd = compute_rmsd(
@@ -551,6 +584,9 @@ def compute_overall_statistics(
             )
             metrics_list = qm_comp.per_potential.get(pot_name, [])
             for conf_idx, m in enumerate(metrics_list):
+                # Skip sentinel metrics from failed optimizations.
+                if m.opt_failed:
+                    continue
                 total_conformers += 1
                 # Use record_id if available, otherwise molecule name
                 if conf_idx < len(qm_comp.record_ids):

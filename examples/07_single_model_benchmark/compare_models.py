@@ -200,15 +200,6 @@ def main(config_path: str | Path) -> None:
         for sdf_file in sdf_files:
             model_name, molecules = read_optimized_sdf(sdf_file, records)
 
-            if len(molecules) != len(records):
-                logger.warning(
-                    "  %s has %d molecules but QM reference has %d -- skipping",
-                    sdf_file.name,
-                    len(molecules),
-                    len(records),
-                )
-                continue
-
             if model_name in optimized_results:
                 logger.info(
                     "  %s: duplicate for %s -- using latest file",
@@ -220,7 +211,12 @@ def main(config_path: str | Path) -> None:
 
             optimized_results[model_name] = molecules
             potential_names.append(model_name)
-            logger.info("  Loaded %s: %d molecules", model_name, len(molecules))
+            n_ok = sum(1 for m in molecules if m is not None)
+            n_fail = sum(1 for m in molecules if m is None)
+            logger.info(
+                "  Loaded %s: %d molecules (%d optimized, %d failed)",
+                model_name, len(molecules), n_ok, n_fail,
+            )
 
         if not potential_names:
             logger.warning("  No valid optimized results for %s.", dataset_name)

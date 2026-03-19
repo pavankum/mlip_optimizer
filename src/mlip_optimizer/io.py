@@ -76,7 +76,7 @@ def molecule_to_sdf(
 
 
 def molecules_to_sdf(
-    molecules: dict[str, Molecule],
+    molecules: dict[str, Molecule | None],
     output_dir: str | Path,
     *,
     prefix: str = "",
@@ -118,6 +118,8 @@ def molecules_to_sdf(
 
     paths: dict[str, Path] = {}
     for model_name, mol in molecules.items():
+        if mol is None:
+            continue
         safe_name = (
             model_name.replace("/", "_")
             .replace(".", "_")
@@ -194,6 +196,19 @@ def write_qm_comparison_csv(
                         if conf_idx < len(mol_rec.energies)
                         else ""
                     )
+                    if metrics.opt_failed:
+                        writer.writerow([
+                            qm_comp.inchi_key,
+                            qm_comp.smiles,
+                            record_id,
+                            conf_idx,
+                            pot_name,
+                            "Opt. fail", "Opt. fail", "Opt. fail",
+                            "Opt. fail", "Opt. fail",
+                            "Opt. fail", "Opt. fail",
+                            energy,
+                        ])
+                        continue
                     writer.writerow([
                         qm_comp.inchi_key,
                         qm_comp.smiles,
@@ -235,11 +250,13 @@ def write_qm_comparison_csv(
             ]
             for pot in potential_names:
                 metrics_list = qm_comp.per_potential.get(pot, [])
-                if metrics_list:
-                    rmsds = [m.rmsd for m in metrics_list]
-                    bond_diffs = [m.mean_bond_diff for m in metrics_list]
-                    angle_diffs = [m.mean_angle_diff for m in metrics_list]
-                    torsion_diffs = [m.mean_torsion_diff for m in metrics_list]
+                # Check if all conformers for this potential are Opt. fail
+                valid_metrics = [m for m in metrics_list if not m.opt_failed]
+                if valid_metrics:
+                    rmsds = [m.rmsd for m in valid_metrics]
+                    bond_diffs = [m.mean_bond_diff for m in valid_metrics]
+                    angle_diffs = [m.mean_angle_diff for m in valid_metrics]
+                    torsion_diffs = [m.mean_torsion_diff for m in valid_metrics]
                     row.extend([
                         f"{float(np.mean(rmsds)):.6f}",
                         f"{float(np.std(rmsds)):.6f}",
@@ -248,7 +265,8 @@ def write_qm_comparison_csv(
                         f"{float(np.mean(torsion_diffs)):.4f}",
                     ])
                 else:
-                    row.extend(["", "", "", "", ""])
+                    row.extend(["Opt. fail", "Opt. fail", "Opt. fail",
+                                "Opt. fail", "Opt. fail"])
             writer.writerow(row)
 
     logger.info("Wrote summary CSV: %s", summary_path)
@@ -257,7 +275,7 @@ def write_qm_comparison_csv(
 
 def write_batch_sdf(
     molecule_records: list,
-    optimized_results: dict[str, list[Molecule]],
+    optimized_results: dict[str, list[Molecule | None]],
     output_dir: str | Path,
     file_suffix: str = "",
 ) -> dict[str, Path]:
@@ -303,6 +321,10 @@ def write_batch_sdf(
         for mol_idx, (mol_rec, opt_mol) in enumerate(
             zip(molecule_records, opt_mols)
         ):
+            # Skip molecules that failed optimization (stored as None).
+            if opt_mol is None:
+                continue
+
             try:
                 rdmol = opt_mol.to_rdkit()
             except Exception:
@@ -345,7 +367,7 @@ def write_batch_sdf(
 def read_optimized_sdf(
     path: str | Path,
     qm_records: list[MoleculeRecord],
-) -> tuple[str, list[Molecule]]:
+) -> tuple[str, list[Molecule | None]]:
     """Read an optimized SDF and reconstruct molecules matching QM order.
 
     Coordinates from the SDF are mapped onto copies of the QM reference
@@ -362,9 +384,11 @@ def read_optimized_sdf(
 
     Returns
     -------
-    tuple[str, list[Molecule]]
+    tuple[str, list[Molecule | None]]
         ``(model_name, molecules)`` where *molecules* is parallel to
-        *qm_records* with optimized conformer coordinates.
+        *qm_records* with optimized conformer coordinates.  Entries are
+        ``None`` for molecules whose optimization failed (i.e. missing
+        from the SDF).
     """
     path = Path(path)
     supplier = Chem.SDMolSupplier(str(path), removeHs=False)
@@ -388,13 +412,14 @@ def read_optimized_sdf(
         model_name = path.stem.replace("optimized_", "").replace("_", ".")
 
     # Reconstruct multi-conformer molecules using QM topology
-    molecules: list[Molecule] = []
+    molecules: list[Molecule | None] = []
     for mol_idx in range(len(qm_records)):
         if mol_idx not in groups:
             logger.warning(
-                "No optimized data for molecule %d in %s", mol_idx, path.name
+                "No optimized data for molecule %d in %s (Opt. fail)",
+                mol_idx, path.name,
             )
-            molecules.append(qm_records[mol_idx].molecule)
+            molecules.append(None)
             continue
 
         entries = sorted(groups[mol_idx], key=lambda x: x[0])

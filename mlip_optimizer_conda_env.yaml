@@ -15,7 +15,7 @@ dependencies:
   - ase
 
   # OpenMM and force fields
-  - openmm ==8.5.0beta
+  - openmm >=8.5.0rc1
   - openmmforcefields
   - openff-toolkit
   - openff-forcefields

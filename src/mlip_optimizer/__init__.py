@@ -30,6 +30,7 @@ Install with ``pip install mlip-optimizer[qcarchive]`` then use::
 
 from mlip_optimizer.comparison import (
     ComparisonResult,
+    OPT_FAILED_METRICS,
     OverallErrorStatistics,
     QMComparisonMetrics,
     QMComparisonResult,
@@ -87,6 +88,7 @@ __all__ = [
     "EGRETOptimizer",
     "ComparisonResult",
     "evaluate_model_pairs",
+    "OPT_FAILED_METRICS",
     "QMComparisonMetrics",
     "QMComparisonResult",
     "OverallErrorStatistics",

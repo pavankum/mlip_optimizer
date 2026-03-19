@@ -227,7 +227,7 @@ def run_parquet_benchmark(
 
     # --- 2. Optimize ---
     # optimized_results[pot_name][mol_idx] = Molecule with optimized conformers
-    optimized_results: dict[str, list[Molecule]] = {
+    optimized_results: dict[str, list[Molecule | None]] = {
         name: [] for name in potential_names
     }
     qm_comparison_results = []
@@ -246,7 +246,7 @@ def run_parquet_benchmark(
                 mol_idx + 1, len(records), rec.smiles, len(rec.record_ids),
             )
 
-            opt_mols: dict[str, Molecule] = {}
+            opt_mols: dict[str, Molecule | None] = {}
             for pot_name, optimizer in optimizers.items():
                 try:
                     opt_mols[pot_name] = optimizer.optimize(rec.molecule)
@@ -254,7 +254,7 @@ def run_parquet_benchmark(
                     logger.warning(
                         "  %s failed for %s: %s", pot_name, rec.inchi_key, exc
                     )
-                    opt_mols[pot_name] = rec.molecule  # fallback: unoptimized
+                    opt_mols[pot_name] = None  # mark as Opt. fail
 
             for pot_name in potential_names:
                 optimized_results[pot_name].append(opt_mols[pot_name])
@@ -379,13 +379,13 @@ def run_sdf_benchmark(
                     logger.warning("  Cannot generate conformers: %s", exc)
                     continue
 
-            opt_mols: dict[str, Molecule] = {}
+            opt_mols: dict[str, Molecule | None] = {}
             for pot_name, optimizer in optimizers.items():
                 try:
                     opt_mols[pot_name] = optimizer.optimize(mol)
                 except Exception as exc:
                     logger.warning("  %s failed: %s", pot_name, exc)
-                    opt_mols[pot_name] = mol
+                    opt_mols[pot_name] = None
 
             # Compare pairwise
             comparison = evaluate_model_pairs(
