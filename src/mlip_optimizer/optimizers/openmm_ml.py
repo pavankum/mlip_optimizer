@@ -149,26 +149,27 @@ class OpenMMMLOptimizer:
         original_conformers = list(result.conformers)
         result.clear_conformers()
 
-        # MACE TorchScript models conflict with the OpenMM CUDA platform,
-        # causing "invalid resource handle" errors.  Use OpenCL for MACE
-        # instead — the TorchForce still evaluates on GPU via PyTorch.
-        _is_mace = self._potential_name.startswith("mace")
-        if _is_mace:
-            platform = openmm.Platform.getPlatformByName("OpenCL")
-        elif self._device.startswith("cuda"):
+        # Avoid OpenCL — it can conflict with PyTorch's CUDA context for
+        # TorchScript-based ML potentials.  Use CUDA when available.
+        if self._device.startswith("cuda"):
             platform = openmm.Platform.getPlatformByName("CUDA")
         else:
             platform = openmm.Platform.getPlatformByName("CPU")
 
+        # Create a single Simulation (and Context) and reuse it for all
+        # conformers.  Creating a new Context per conformer leaks GPU
+        # resources and causes "invalid resource handle" errors.
+        integrator = openmm.LangevinIntegrator(
+            300 * omm_unit.kelvin,
+            1.0 / omm_unit.picoseconds,
+            1.0 * omm_unit.femtosecond,
+        )
+        simulation = Simulation(
+            off_topology.to_openmm(), system, integrator, platform,
+        )
+
         for conformer in original_conformers:
             positions = conformer.m_as(unit.nanometer)
-
-            integrator = openmm.LangevinIntegrator(
-                300 * omm_unit.kelvin,
-                1.0 / omm_unit.picoseconds,
-                1.0 * omm_unit.femtosecond,
-            )
-            simulation = Simulation(off_topology.to_openmm(), system, integrator, platform)
             simulation.context.setPositions(positions)
 
             simulation.minimizeEnergy(
