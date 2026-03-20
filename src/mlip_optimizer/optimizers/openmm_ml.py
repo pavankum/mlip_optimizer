@@ -204,6 +204,27 @@ class OpenMMMLOptimizer:
         result = Molecule(molecule)
         off_topology = result.to_topology()
 
+        # FeNNix uses JAX internally.  Two issues arise when processing
+        # multiple molecules sequentially on GPU:
+        #
+        # 1. fennixpotential.py toggles ``jax.enable_x64`` as a context
+        #    manager on every force evaluation, which invalidates XLA
+        #    compilation caches and leaves stale CUDA handles.  Setting
+        #    the flag globally here before loading makes the per-call
+        #    context manager a no-op (it restores the same value).
+        #
+        # 2. Old JIT-compiled traces from the previous molecule linger in
+        #    JAX's cache and hold references to freed CUDA resources.
+        #    ``jax.clear_caches()`` releases them before loading the model.
+        if self._potential_name.startswith("fennix"):
+            try:
+                import jax as _jax
+                _jax.config.update("jax_enable_x64", True)
+                if hasattr(_jax, "clear_caches"):
+                    _jax.clear_caches()
+            except ImportError:
+                pass
+
         potential = MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
         system = potential.createSystem(off_topology.to_openmm())
 
@@ -287,6 +308,7 @@ class OpenMMMLOptimizer:
             torch.cuda.synchronize()
         del simulation.context
         del simulation
+        del potential  # release TorchScript/JAX model from GPU memory
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
