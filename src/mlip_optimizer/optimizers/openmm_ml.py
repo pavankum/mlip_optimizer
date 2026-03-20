@@ -122,19 +122,6 @@ class OpenMMMLOptimizer:
                 self._ml_potential_name = generic
                 self._ml_potential_kwargs["modelPath"] = self._model_path
 
-        # Track last atomic numbers for recompilation (AceFF/TorchMDNet only)
-        self._last_atomic_numbers = None
-        self._potential = None
-
-    def _create_potential(self) -> MLPotential:
-        """Create (or reuse) an ``MLPotential`` instance, recompiling if needed."""
-        # Only AceFF/TorchMDNet need recompilation on atom number change
-        aceff_names = ("aceff-1.0", "aceff-1.1", "aceff-2.0", "torchmdnet")
-        if self._potential_name not in aceff_names:
-            return MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
-        # For AceFF/TorchMDNet, reuse if atomic numbers match, else recompile
-        return self._potential  # will be set in optimize()
-
     @staticmethod
     def _system_uses_python_force(system: openmm.System) -> bool:
         """Return True if *system* contains an ``openmm.PythonForce``."""
@@ -217,23 +204,7 @@ class OpenMMMLOptimizer:
         result = Molecule(molecule)
         off_topology = result.to_topology()
 
-
-        # --- AceFF/TorchMDNet: recompile on atom number change ---
-        aceff_names = ("aceff-1.0", "aceff-1.1", "aceff-2.0", "torchmdnet")
-        atomic_numbers = tuple(int(z) for z in result.atomic_numbers)
-        if self._potential_name in aceff_names:
-            if self._last_atomic_numbers != atomic_numbers or self._potential is None:
-                # Recompile: create new MLPotential and do a warmup pass
-                self._potential = MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
-                self._last_atomic_numbers = atomic_numbers
-                # Warmup: create dummy system and run a single forward pass
-                # (This is a no-op for openmmml, but we mimic torchmdnet logic)
-                # No explicit warmup API in openmmml, so just creating the system suffices
-                _ = self._potential.createSystem(off_topology.to_openmm())
-            potential = self._potential
-        else:
-            potential = MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
-
+        potential = MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
         system = potential.createSystem(off_topology.to_openmm())
 
         original_conformers = list(result.conformers)
