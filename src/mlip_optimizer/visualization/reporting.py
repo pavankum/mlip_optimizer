@@ -38,6 +38,14 @@ def _escape_mpl_text(text: str) -> str:
     return text
 
 
+def _parse_mean_diff(s: str) -> float:
+    """Parse the mean value from a formatted ``'mean +/- std'`` string."""
+    try:
+        return abs(float(s.split("+/-")[0].strip()))
+    except (ValueError, IndexError, AttributeError):
+        return 0.0
+
+
 def create_title_page(
     pdf_pages: PdfPages,
     title: str,
@@ -445,16 +453,25 @@ def create_statistics_report(
             dataset_name, dpi,
         )
 
-    # --- Param histogram pages (bond / angle / torsion) ---
+    # --- Param histogram, distribution, and violin pages ---
     if qm_results:
-        for attr, label in (
-            ("bond_diff_table", "Bond"),
-            ("angle_diff_table", "Angle"),
-            ("torsion_diff_table", "Torsion"),
-        ):
+        _PARAM_PAGE_INFO = [
+            ("bond_diff_table",    "bond_diffs",    "Bond",    0.1),
+            ("angle_diff_table",   "angle_diffs",   "Angle",   5.0),
+            ("torsion_diff_table", "torsion_diffs", "Torsion", 40.0),
+        ]
+        for attr, metric_attr, label, threshold in _PARAM_PAGE_INFO:
             _add_param_histogram_page(
                 qm_results, potential_names, pdf_pages, attr, label,
-                dataset_name, dpi,
+                dataset_name, dpi, threshold=threshold,
+            )
+            _add_param_error_distribution_page(
+                qm_results, potential_names, pdf_pages, attr, metric_attr,
+                label, dataset_name, dpi, threshold=threshold,
+            )
+            _add_error_violin_page(
+                qm_results, potential_names, pdf_pages, attr, metric_attr,
+                label, dataset_name, dpi,
             )
 
 
@@ -608,6 +625,8 @@ def _add_param_histogram_page(
     label: str,
     dataset_name: str,
     dpi: int,
+    *,
+    threshold: float = 0.0,
 ) -> None:
     """Add a bar-chart page showing how often each FF param ID crossed the threshold.
 
@@ -640,10 +659,10 @@ def _add_param_histogram_page(
             if not pid:
                 continue
             has_params = True
-            # Attribute each row to each potential that has a non-"N/A" diff
+            # Only attribute to potentials whose own diff crossed the threshold
             for pot_idx, pot_name in enumerate(potential_names):
                 diff_str = row[2 + pot_idx] if len(row) > 2 + pot_idx else "N/A"
-                if diff_str and diff_str != "N/A":
+                if diff_str and diff_str != "N/A" and _parse_mean_diff(diff_str) > threshold:
                     counters[pot_name][pid] += 1
 
     if not has_params:
@@ -691,5 +710,236 @@ def _add_param_histogram_page(
                 )
 
     plt.tight_layout(rect=(0, 0.02, 1, 0.95))
+    pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
+    plt.close(fig)
+
+
+def _add_param_error_distribution_page(
+    qm_results: list,
+    potential_names: list[str],
+    pdf_pages: PdfPages,
+    table_attr: str,
+    metric_attr: str,
+    label: str,
+    dataset_name: str,
+    dpi: int,
+    *,
+    threshold: float = 0.0,
+) -> None:
+    """Add pages of per-parameter-ID error distributions across potentials.
+
+    For each parameter ID that appears in threshold-crossing diff table rows,
+    plots overlapping normalised histograms of absolute error values (collected
+    across all conformers and molecules) for each potential, with dashed
+    vertical lines at each potential's mean.  Up to four parameters are shown
+    per page in a 2x2 grid.  A red dotted vertical line marks the threshold.
+    """
+    from collections import defaultdict
+
+    n_pots = len(potential_names)
+    param_col = 2 + n_pots
+
+    # First pass: build global atom_key -> param_id mapping from all molecules
+    global_key_to_pid: dict[tuple, str] = {}
+    for qm_comp in qm_results:
+        rows: list = getattr(qm_comp, table_attr, [])
+        for row in rows:
+            if len(row) > param_col:
+                pid = row[param_col]
+                if pid:
+                    atom_key = row[0]
+                    if atom_key not in global_key_to_pid:
+                        global_key_to_pid[atom_key] = pid
+
+    if not global_key_to_pid:
+        return
+
+    # Second pass: collect per-conformer absolute error values per (pid, potential)
+    pid_errors: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for qm_comp in qm_results:
+        for pot_name in potential_names:
+            metrics_list = qm_comp.per_potential.get(pot_name, [])
+            for metrics in metrics_list:
+                if metrics.opt_failed:
+                    continue
+                diffs: dict = getattr(metrics, metric_attr, {})
+                for atom_key, val in diffs.items():
+                    pid = global_key_to_pid.get(atom_key)
+                    if pid:
+                        pid_errors[pid][pot_name].append(abs(val))
+
+    if not pid_errors:
+        return
+
+    # Sort pids by total sample count descending (most-seen params first)
+    all_pids = sorted(
+        pid_errors.keys(),
+        key=lambda p: -sum(len(v) for v in pid_errors[p].values()),
+    )
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    pot_colors = {p: colors[i % len(colors)] for i, p in enumerate(potential_names)}
+    unit = "\u00c5" if label == "Bond" else "\u00b0"
+
+    params_per_page = 4
+    for page_start in range(0, len(all_pids), params_per_page):
+        page_pids = all_pids[page_start : page_start + params_per_page]
+        n_on_page = len(page_pids)
+        ncols = min(2, n_on_page)
+        nrows = (n_on_page + ncols - 1) // ncols
+
+        fig, axes = plt.subplots(
+            nrows, ncols,
+            figsize=(8 * ncols, 4 * nrows),
+            dpi=dpi,
+            squeeze=False,
+        )
+        fig.suptitle(
+            f"{label} Error Distributions per Parameter \u2014 {dataset_name}",
+            fontsize=11,
+        )
+
+        for idx, pid in enumerate(page_pids):
+            row_i, col_i = divmod(idx, ncols)
+            ax = axes[row_i][col_i]
+
+            all_vals = [v for vals in pid_errors[pid].values() for v in vals]
+            if not all_vals:
+                ax.axis("off")
+                continue
+
+            vmin, vmax = min(all_vals), max(all_vals)
+            bins: int | np.ndarray = (
+                np.linspace(vmin, vmax, 20) if vmax > vmin else 10
+            )
+            plotted_any = False
+            for pot_name in potential_names:
+                vals = pid_errors[pid].get(pot_name, [])
+                if not vals:
+                    continue
+                ax.hist(
+                    vals,
+                    bins=bins,
+                    alpha=0.5,
+                    label=pot_name,
+                    color=pot_colors[pot_name],
+                    edgecolor="none",
+                    density=True,
+                )
+                ax.axvline(
+                    float(np.mean(vals)),
+                    color=pot_colors[pot_name],
+                    linestyle="--",
+                    linewidth=1.0,
+                )
+                plotted_any = True
+
+            if threshold > 0:
+                ax.axvline(
+                    threshold,
+                    color="red",
+                    linestyle=":",
+                    linewidth=1.2,
+                    alpha=0.8,
+                    label=f"threshold ({threshold})",
+                )
+
+            ax.set_title(f"{label} param {pid}", fontsize=9)
+            ax.set_xlabel(f"|error| ({unit})", fontsize=8)
+            ax.set_ylabel("Density", fontsize=8)
+            if plotted_any:
+                ax.legend(fontsize=6, loc="upper right")
+            ax.tick_params(labelsize=7)
+
+        for idx in range(n_on_page, nrows * ncols):
+            row_i, col_i = divmod(idx, ncols)
+            axes[row_i][col_i].axis("off")
+
+        plt.tight_layout(rect=(0, 0.0, 1, 0.95))
+        pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
+        plt.close(fig)
+
+
+def _add_error_violin_page(
+    qm_results: list,
+    potential_names: list[str],
+    pdf_pages: PdfPages,
+    table_attr: str,
+    metric_attr: str,
+    label: str,
+    dataset_name: str,
+    dpi: int,
+) -> None:
+    """Add a violin plot page showing per-potential error distributions.
+
+    Collects absolute error values for all parameter keys that appear in
+    threshold-crossing rows across all molecules and conformers, then draws
+    one violin per potential.  Potentials with fewer than two data points
+    are skipped.
+    """
+    from collections import defaultdict
+
+    # Collect atom keys that crossed threshold in any molecule
+    threshold_keys: set[tuple] = set()
+    for qm_comp in qm_results:
+        rows: list = getattr(qm_comp, table_attr, [])
+        for row in rows:
+            threshold_keys.add(row[0])
+
+    if not threshold_keys:
+        return
+
+    pot_errors: dict[str, list[float]] = defaultdict(list)
+    for qm_comp in qm_results:
+        for pot_name in potential_names:
+            metrics_list = qm_comp.per_potential.get(pot_name, [])
+            for metrics in metrics_list:
+                if metrics.opt_failed:
+                    continue
+                diffs: dict = getattr(metrics, metric_attr, {})
+                for atom_key, val in diffs.items():
+                    if atom_key in threshold_keys:
+                        pot_errors[pot_name].append(abs(val))
+
+    plot_data = [
+        (p, pot_errors[p]) for p in potential_names if len(pot_errors.get(p, [])) >= 2
+    ]
+    if not plot_data:
+        return
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    unit = "\u00c5" if label == "Bond" else "\u00b0"
+
+    fig, ax = plt.subplots(
+        figsize=(max(8, len(plot_data) * 2 + 2), 6), dpi=dpi
+    )
+
+    positions = list(range(1, len(plot_data) + 1))
+    data = [vals for _, vals in plot_data]
+    pot_labels = [name for name, _ in plot_data]
+
+    parts = ax.violinplot(data, positions=positions, showmedians=True, showextrema=True)
+
+    for i, pc in enumerate(parts["bodies"]):
+        pc.set_facecolor(colors[i % len(colors)])
+        pc.set_alpha(0.6)
+    for part_name in ("cbars", "cmins", "cmaxes", "cmedians"):
+        if part_name in parts:
+            parts[part_name].set_color("black")
+            parts[part_name].set_linewidth(1.0)
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(pot_labels, rotation=30, ha="right", fontsize=7)
+    ax.set_ylabel(f"|{label} error| ({unit})", fontsize=9)
+    ax.set_xlabel("Potential", fontsize=9)
+    ax.set_title(
+        f"{label} Error Distribution (threshold-crossing params) \u2014 {dataset_name}",
+        fontsize=10,
+    )
+    ax.grid(axis="y", alpha=0.3)
+
+    plt.tight_layout()
     pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
     plt.close(fig)
