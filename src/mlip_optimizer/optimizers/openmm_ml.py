@@ -122,17 +122,18 @@ class OpenMMMLOptimizer:
                 self._ml_potential_name = generic
                 self._ml_potential_kwargs["modelPath"] = self._model_path
 
-    def _create_potential(self) -> MLPotential:
-        """Create a fresh ``MLPotential`` instance.
+        # Track last atomic numbers for recompilation (AceFF/TorchMDNet only)
+        self._last_atomic_numbers = None
+        self._potential = None
 
-        TorchScript-based models (MACE, AceFF/TorchMDNet) cache GPU
-        tensors keyed to the atom count of the first molecule.  When a
-        second molecule with a different atom count is optimized, the
-        stale cache causes empty ``OpenMMException`` errors.  Recreating
-        the ``MLPotential`` per ``optimize()`` call gives a clean
-        TorchScript model each time.
-        """
-        return MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
+    def _create_potential(self) -> MLPotential:
+        """Create (or reuse) an ``MLPotential`` instance, recompiling if needed."""
+        # Only AceFF/TorchMDNet need recompilation on atom number change
+        aceff_names = ("aceff-1.0", "aceff-1.1", "aceff-2.0", "torchmdnet")
+        if self._potential_name not in aceff_names:
+            return MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
+        # For AceFF/TorchMDNet, reuse if atomic numbers match, else recompile
+        return self._potential  # will be set in optimize()
 
     @staticmethod
     def _system_uses_python_force(system: openmm.System) -> bool:
@@ -216,16 +217,24 @@ class OpenMMMLOptimizer:
         result = Molecule(molecule)
         off_topology = result.to_topology()
 
-        potential = self._create_potential()
-        system = potential.createSystem(off_topology.to_openmm())
 
-        # AceFF / TorchMDNet models are numerically fragile: the C++
-        # LocalEnergyMinimizer's L-BFGS line search visits geometries
-        # where the model throws, producing an empty OpenMMException
-        # and corrupting the context.  Use scipy L-BFGS-B for these.
-        _use_scipy = self._potential_name in (
-            "aceff-1.0", "aceff-1.1", "aceff-2.0", "torchmdnet",
-        )
+        # --- AceFF/TorchMDNet: recompile on atom number change ---
+        aceff_names = ("aceff-1.0", "aceff-1.1", "aceff-2.0", "torchmdnet")
+        atomic_numbers = tuple(int(z) for z in result.atomic_numbers)
+        if self._potential_name in aceff_names:
+            if self._last_atomic_numbers != atomic_numbers or self._potential is None:
+                # Recompile: create new MLPotential and do a warmup pass
+                self._potential = MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
+                self._last_atomic_numbers = atomic_numbers
+                # Warmup: create dummy system and run a single forward pass
+                # (This is a no-op for openmmml, but we mimic torchmdnet logic)
+                # No explicit warmup API in openmmml, so just creating the system suffices
+                _ = self._potential.createSystem(off_topology.to_openmm())
+            potential = self._potential
+        else:
+            potential = MLPotential(self._ml_potential_name, **self._ml_potential_kwargs)
+
+        system = potential.createSystem(off_topology.to_openmm())
 
         original_conformers = list(result.conformers)
         result.clear_conformers()
@@ -261,27 +270,19 @@ class OpenMMMLOptimizer:
             simulation.context.setPositions(positions)
 
             try:
-                if _use_scipy:
-                    self._scipy_minimize(
-                        simulation.context,
-                        self._tolerance,
-                        self._max_iterations,
-                    )
-                else:
-                    simulation.minimizeEnergy(
-                        tolerance=(
-                            self._tolerance
-                            * omm_unit.kilojoule_per_mole
-                            / omm_unit.nanometer
-                        ),
-                        maxIterations=self._max_iterations,
-                    )
+                simulation.minimizeEnergy(
+                    tolerance=(
+                        self._tolerance
+                        * omm_unit.kilojoule_per_mole
+                        / omm_unit.nanometer
+                    ),
+                    maxIterations=self._max_iterations,
+                )
             except Exception as e:
                 diag = (
                     f"  Conformer index: {conf_idx}\n"
                     f"  Potential:        {self._potential_name}\n"
                     f"  Platform:         {platform.getName()}\n"
-                    f"  Scipy minimize:   {_use_scipy}"
                 )
                 try:
                     state = simulation.context.getState(

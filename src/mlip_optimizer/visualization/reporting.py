@@ -143,13 +143,21 @@ def create_comparison_report(
         f"Molecule: {molecule_label}, num_conformers: {num_conformers}\n"
     )
 
+    # Detect whether FF param columns were appended (6 cols vs 4)
+    _has_params = (
+        (comparison.bond_diffs and len(comparison.bond_diffs[0]) == 6)
+        or (comparison.angle_diffs and len(comparison.angle_diffs[0]) == 6)
+        or (comparison.torsion_diffs and len(comparison.torsion_diffs[0]) == 6)
+    )
+    _param_headers = ["Param ID", "SMIRKS"] if _has_params else []
+
     if comparison.bond_diffs:
         headers = [
             "Bond",
             f"{model1_name}\n(\u00c5)",
             f"{model2_name}\n(\u00c5)",
             "Difference (\u00c5)",
-        ]
+        ] + _param_headers
         tables_text.append(
             "BOND DIFFERENCES OF > threshold\n" + "=" * 100
         )
@@ -164,7 +172,7 @@ def create_comparison_report(
             f"{model1_name}\n(\u00b0)",
             f"{model2_name}\n(\u00b0)",
             "Difference (\u00b0)",
-        ]
+        ] + _param_headers
         tables_text.append(
             "ANGLE DIFFERENCES OF > threshold\n" + "=" * 100
         )
@@ -179,7 +187,7 @@ def create_comparison_report(
             f"{model1_name}\n(\u00b0)",
             f"{model2_name}\n(\u00b0)",
             "Difference (\u00b0)",
-        ]
+        ] + _param_headers
         tables_text.append(
             "TORSION DIFFERENCES OF > threshold\n" + "=" * 100
         )
@@ -383,6 +391,7 @@ def create_statistics_report(
     *,
     dataset_name: str = "",
     dpi: int = 300,
+    qm_results: list | None = None,
 ) -> None:
     """Add overall error statistics pages to a PDF report.
 
@@ -422,6 +431,18 @@ def create_statistics_report(
             stats, potential_names, pdf_pages, title_label, prefix,
             dataset_name, dpi,
         )
+
+    # --- Param histogram pages (bond / angle / torsion) ---
+    if qm_results:
+        for attr, label in (
+            ("bond_diff_table", "Bond"),
+            ("angle_diff_table", "Angle"),
+            ("torsion_diff_table", "Torsion"),
+        ):
+            _add_param_histogram_page(
+                qm_results, potential_names, pdf_pages, attr, label,
+                dataset_name, dpi,
+            )
 
 
 def _add_summary_overview_page(
@@ -562,5 +583,114 @@ def _add_metric_detail_page(
         verticalalignment="top", transform=ax.transAxes,
     )
 
+    pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
+    plt.close(fig)
+
+
+def _add_param_histogram_page(
+    qm_results: list,
+    potential_names: list[str],
+    pdf_pages: PdfPages,
+    table_attr: str,
+    label: str,
+    dataset_name: str,
+    dpi: int,
+) -> None:
+    """Add a bar-chart page showing how often each FF param ID crossed the threshold.
+
+    For each potential, counts how many times each ``param_id`` appears in
+    the per-molecule diff table (col index 4 of annotated rows).  Rows from
+    ``_aggregate_qm_diffs`` have the structure:
+    ``[atom_key, qm_ref, pot1_diff, pot2_diff, ..., param_id, smirks]``
+    where ``param_id`` is at index ``2 + len(potential_names)`` when FF
+    annotation is present.
+
+    If no rows carry a param_id column the page is skipped.
+    """
+    from collections import Counter
+
+    n_pots = len(potential_names)
+    # param_id column index in annotated QM diff-table rows:
+    # [atom_key, qm_ref, pot1, pot2, ..., param_id, smirks]
+    param_col = 2 + n_pots
+    smirks_col = param_col + 1
+
+    # Count occurrences per potential
+    counters: dict[str, Counter] = {p: Counter() for p in potential_names}
+    param_smirks: dict[str, str] = {}
+    has_params = False
+
+    for qm_comp in qm_results:
+        rows: list = getattr(qm_comp, table_attr, [])
+        for row in rows:
+            if len(row) <= param_col:
+                continue  # not annotated
+            pid = row[param_col]
+            if not pid:
+                continue
+            has_params = True
+            # Attribute each row to each potential that has a non-"N/A" diff
+            for pot_idx, pot_name in enumerate(potential_names):
+                diff_str = row[2 + pot_idx] if len(row) > 2 + pot_idx else "N/A"
+                if diff_str and diff_str != "N/A":
+                    counters[pot_name][pid] += 1
+            if pid not in param_smirks and len(row) > smirks_col:
+                param_smirks[pid] = row[smirks_col]
+
+    if not has_params:
+        return
+
+    # Collect all param IDs that appear across any potential
+    all_pids = sorted(
+        {pid for c in counters.values() for pid in c},
+        key=lambda p: -max(c[p] for c in counters.values()),
+    )
+    if not all_pids:
+        return
+
+    # Build figure: one subplot per potential, stacked vertically
+    n_rows_pots = len(potential_names)
+    fig, axes = plt.subplots(
+        n_rows_pots, 1,
+        figsize=(max(12, len(all_pids) * 0.6 + 2), 4 * n_rows_pots),
+        dpi=dpi,
+        squeeze=False,
+    )
+    fig.suptitle(
+        f"{label} Parameter Threshold-Crossing Count — {dataset_name}",
+        fontsize=12,
+    )
+
+    x = np.arange(len(all_pids))
+    for row_idx, pot_name in enumerate(potential_names):
+        ax = axes[row_idx][0]
+        counts = [counters[pot_name].get(pid, 0) for pid in all_pids]
+        bars = ax.bar(x, counts, color="steelblue", edgecolor="white")
+        ax.set_title(pot_name, fontsize=9)
+        ax.set_xticks(x)
+        ax.set_xticklabels(all_pids, rotation=45, ha="right", fontsize=7)
+        ax.set_ylabel("Count", fontsize=8)
+        ax.set_xlabel(f"{label} Param ID", fontsize=8)
+        # Annotate bars with count value
+        for bar, cnt in zip(bars, counts):
+            if cnt > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.1,
+                    str(cnt),
+                    ha="center", va="bottom", fontsize=6,
+                )
+
+    # Add a SMIRKS legend as wrapped text below the plots
+    if param_smirks:
+        smirks_lines = [f"{pid}: {param_smirks.get(pid, '')}" for pid in all_pids]
+        smirks_text = "\n".join(smirks_lines)
+        fig.text(
+            0.01, 0.0, smirks_text,
+            fontsize=5, family="monospace",
+            va="bottom", wrap=True,
+        )
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
     plt.close(fig)

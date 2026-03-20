@@ -52,6 +52,7 @@ def evaluate_model_pairs(
     bond_threshold: float = 0.1,
     angle_threshold: float = 5.0,
     torsion_threshold: float = 40.0,
+    forcefield_name: str | None = None,
 ) -> ComparisonResult:
     """Evaluate pairwise geometry differences across all conformers.
 
@@ -81,12 +82,20 @@ def evaluate_model_pairs(
     torsion_threshold : float, optional
         Minimum mean absolute torsion difference in degrees to include.
         Default is ``40.0``.
+    forcefield_name : str or None, optional
+        Name of an OpenFF ForceField (e.g. ``"openff-2.2.0.offxml"``) used
+        to annotate each table row with the ``parameter_id`` and ``smirks``
+        of the parameter applied to that bond/angle/torsion.  When ``None``
+        (default), the forcefield is auto-detected from *model_pairs* by
+        trying to load each model name as an OpenFF ForceField.  Pass an
+        empty string to disable annotation entirely.
 
     Returns
     -------
     ComparisonResult
         Filtered comparison data with bond, angle, and torsion
-        differences exceeding the thresholds.
+        differences exceeding the thresholds.  Each row includes
+        ``param_id`` and ``smirks`` columns when a ForceField was found.
 
     Examples
     --------
@@ -147,11 +156,93 @@ def evaluate_model_pairs(
         torsion_diffs_list, torsion_threshold, normalize_torsion=True
     )
 
+    # Annotate table rows with ForceField parameter_id / smirks
+    # Auto-detect from model_pairs when not passed explicitly.
+    ff_name = forcefield_name or _detect_forcefield_name(model_pairs)
+    if ff_name is not None:
+        ff_lookup = _get_ff_param_lookup(reference_molecule, ff_name)
+        if ff_lookup:
+            bond_table = _annotate_table_with_ff_params(bond_table, ff_lookup)
+            angle_table = _annotate_table_with_ff_params(angle_table, ff_lookup)
+            torsion_table = _annotate_table_with_ff_params(torsion_table, ff_lookup)
+
     return ComparisonResult(
         bond_diffs=bond_table,
         angle_diffs=angle_table,
         torsion_diffs=torsion_table,
     )
+
+
+def _detect_forcefield_name(model_pairs: list[tuple[str, str]]) -> str | None:
+    """Try to find an OpenFF ForceField name from model pair names."""
+    try:
+        from openff.toolkit import ForceField
+    except ImportError:
+        return None
+
+    for m1, m2 in model_pairs:
+        for name in (m1, m2):
+            for candidate in (name, name + ".offxml"):
+                try:
+                    ForceField(candidate)
+                    return candidate
+                except Exception:
+                    continue
+    return None
+
+
+def _get_ff_param_lookup(
+    molecule: Molecule,
+    forcefield_name: str,
+) -> dict[tuple, tuple[str, str]]:
+    """Build {atom_indices_tuple: (param_id, smirks)} from ForceField labeling.
+
+    Both the canonical ordering and the reversed ordering of each key are
+    stored so that comparison keys in either direction can be found.
+    """
+    try:
+        from openff.toolkit import ForceField, Topology
+    except ImportError:
+        return {}
+
+    ff = None
+    for candidate in (forcefield_name, forcefield_name + ".offxml"):
+        try:
+            ff = ForceField(candidate)
+            break
+        except Exception:
+            continue
+    if ff is None:
+        return {}
+
+    try:
+        topology = Topology.from_molecules([molecule])
+        mol_forces = ff.label_molecules(topology)[0]
+    except Exception:
+        return {}
+
+    lookup: dict[tuple, tuple[str, str]] = {}
+    for force_tag, force_dict in mol_forces.items():
+        if force_tag not in ("Bonds", "Angles", "ProperTorsions"):
+            continue
+        for atom_indices, param in force_dict.items():
+            entry = (param.id, param.smirks)
+            lookup[atom_indices] = entry
+            lookup[atom_indices[::-1]] = entry
+    return lookup
+
+
+def _annotate_table_with_ff_params(
+    table: list[list],
+    ff_lookup: dict[tuple, tuple[str, str]],
+) -> list[list]:
+    """Append (param_id, smirks) columns to each row using atom-index key lookup."""
+    annotated = []
+    for row in table:
+        key = row[0]
+        param_id, smirks = ff_lookup.get(key, ("", ""))
+        annotated.append(row + [param_id, smirks])
+    return annotated
 
 
 def _aggregate_diffs(

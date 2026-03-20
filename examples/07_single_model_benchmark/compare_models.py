@@ -281,13 +281,14 @@ def main(config_path: str | Path) -> None:
             for mol_idx, (rec, qm_comp) in enumerate(
                 zip(records, qm_comparison_results)
             ):
+                qca_ids = ", ".join(str(r) for r in rec.record_ids)
                 create_qm_comparison_report(
                     rec.molecule,
                     rec.smiles,
                     qm_comp,
                     potential_names,
                     pdf,
-                    molecule_label=f"mol_{mol_idx} ({rec.inchi_key})",
+                    molecule_label=f"mol_{mol_idx} (QCA: {qca_ids})",
                 )
 
         logger.info("  PDF report: %s", pdf_path)
@@ -309,6 +310,7 @@ def main(config_path: str | Path) -> None:
                 potential_names,
                 stats_pdf,
                 dataset_name=dataset_name,
+                qm_results=qm_comparison_results,
             )
         logger.info("  Statistics PDF: %s", stats_pdf_path)
 

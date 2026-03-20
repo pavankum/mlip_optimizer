@@ -280,7 +280,7 @@ def run_parquet_benchmark(
                 qm_comp,
                 potential_names,
                 pdf,
-                molecule_label=f"mol_{mol_idx} ({rec.inchi_key})",
+                molecule_label=f"mol_{mol_idx} (QCA: {', '.join(str(r) for r in rec.record_ids)})",
             )
 
     logger.info("PDF report: %s", pdf_path)
