@@ -413,6 +413,7 @@ def evaluate_against_qm(
     smiles: str = "",
     molecule_name: str = "",
     record_ids: list[int] | None = None,
+    forcefield_name: str | None = None,
 ) -> QMComparisonResult:
     """Compare optimized geometries from multiple potentials against QM.
 
@@ -447,6 +448,11 @@ def evaluate_against_qm(
         Human-readable molecule name or label.
     record_ids : list[int] or None, optional
         QCArchive record IDs, one per conformer.
+    forcefield_name : str or None, optional
+        Name of an OpenFF ForceField (e.g. ``"openff-2.2.0.offxml"``) used
+        to annotate each table row with the ``parameter_id`` and ``smirks``
+        of the parameter applied to that bond/angle/torsion.  Pass ``None``
+        (default) to skip annotation.
 
     Returns
     -------
@@ -547,6 +553,14 @@ def evaluate_against_qm(
     torsion_table = _aggregate_qm_diffs(
         torsion_accum, torsion_ref_accum, potential_names, torsion_threshold,
     )
+
+    # Annotate with FF parameter_id / smirks if a forcefield was supplied
+    if forcefield_name:
+        ff_lookup = _get_ff_param_lookup(qm_molecule, forcefield_name)
+        if ff_lookup:
+            bond_table = _annotate_table_with_ff_params(bond_table, ff_lookup)
+            angle_table = _annotate_table_with_ff_params(angle_table, ff_lookup)
+            torsion_table = _annotate_table_with_ff_params(torsion_table, ff_lookup)
 
     return QMComparisonResult(
         inchi_key=inchi_key,

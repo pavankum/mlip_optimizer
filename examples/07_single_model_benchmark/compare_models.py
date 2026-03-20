@@ -102,6 +102,7 @@ def _evaluate_one_molecule(
     smiles: str,
     molecule_name: str,
     record_ids: list[int],
+    forcefield_name: str = "",
 ):
     """Evaluate a single molecule against QM reference (worker function)."""
     return mol_idx, evaluate_against_qm(
@@ -114,6 +115,7 @@ def _evaluate_one_molecule(
         smiles=smiles,
         molecule_name=molecule_name,
         record_ids=record_ids,
+        forcefield_name=forcefield_name or None,
     )
 
 
@@ -230,6 +232,16 @@ def main(config_path: str | Path) -> None:
         n_workers = os.cpu_count() or 1
         logger.info("  Evaluating with %d workers ...", n_workers)
 
+        # Detect the OpenFF ForceField name once (any model name that resolves
+        # to a valid ForceField), so FF parametrization is done per-worker
+        # rather than re-detecting on every molecule.
+        from mlip_optimizer.comparison import _detect_forcefield_name
+        ff_name = _detect_forcefield_name(
+            [(p, "") for p in potential_names]
+        ) or ""
+        if ff_name:
+            logger.info("  FF parameter annotation: %s", ff_name)
+
         # Build argument tuples for each molecule
         futures_args = []
         for mol_idx, rec in enumerate(records):
@@ -248,6 +260,7 @@ def main(config_path: str | Path) -> None:
                 rec.smiles,
                 rec.inchi_key or rec.smiles,
                 rec.record_ids,
+                ff_name,
             ))
 
         qm_comparison_results: list = [None] * len(records)
