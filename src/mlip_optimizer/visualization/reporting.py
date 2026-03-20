@@ -25,6 +25,19 @@ from mlip_optimizer.comparison import (
 from mlip_optimizer.visualization.drawing import draw_molecule
 
 
+def _escape_mpl_text(text: str) -> str:
+    """Escape characters in *text* that clash with matplotlib's mathtext parser.
+
+    ``$`` starts/ends math mode; ``\\`` can trigger escape sequences.
+    Both are replaced with safe equivalents so SMIRKS patterns render
+    correctly as plain text.
+    """
+    # Backslash first to avoid double-escaping the replacement for $
+    text = text.replace("\\", "\\\\")
+    text = text.replace("$", r"\$")
+    return text
+
+
 def create_title_page(
     pdf_pages: PdfPages,
     title: str,
@@ -203,7 +216,7 @@ def create_comparison_report(
             "No significant differences found within configured thresholds."
         )
 
-    full_text = "\n".join(tables_text)
+    full_text = _escape_mpl_text("\n".join(tables_text))
     ax_tables.text(
         0.0,
         1.0,
@@ -368,7 +381,7 @@ def create_qm_comparison_report(
     # Scale font size if many potentials
     font_size = max(6, 9 - len(potential_names))
 
-    full_text = "\n".join(tables_text)
+    full_text = _escape_mpl_text("\n".join(tables_text))
     ax_tables.text(
         0.0,
         1.0,
@@ -613,11 +626,9 @@ def _add_param_histogram_page(
     # param_id column index in annotated QM diff-table rows:
     # [atom_key, qm_ref, pot1, pot2, ..., param_id, smirks]
     param_col = 2 + n_pots
-    smirks_col = param_col + 1
 
     # Count occurrences per potential
     counters: dict[str, Counter] = {p: Counter() for p in potential_names}
-    param_smirks: dict[str, str] = {}
     has_params = False
 
     for qm_comp in qm_results:
@@ -634,8 +645,6 @@ def _add_param_histogram_page(
                 diff_str = row[2 + pot_idx] if len(row) > 2 + pot_idx else "N/A"
                 if diff_str and diff_str != "N/A":
                     counters[pot_name][pid] += 1
-            if pid not in param_smirks and len(row) > smirks_col:
-                param_smirks[pid] = row[smirks_col]
 
     if not has_params:
         return
@@ -681,16 +690,6 @@ def _add_param_histogram_page(
                     ha="center", va="bottom", fontsize=6,
                 )
 
-    # Add a SMIRKS legend as wrapped text below the plots
-    if param_smirks:
-        smirks_lines = [f"{pid}: {param_smirks.get(pid, '')}" for pid in all_pids]
-        smirks_text = "\n".join(smirks_lines)
-        fig.text(
-            0.01, 0.0, smirks_text,
-            fontsize=5, family="monospace",
-            va="bottom", wrap=True,
-        )
-
-    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    plt.tight_layout(rect=(0, 0.02, 1, 0.95))
     pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
     plt.close(fig)
