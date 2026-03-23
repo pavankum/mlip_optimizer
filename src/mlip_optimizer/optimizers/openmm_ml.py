@@ -306,9 +306,9 @@ class OpenMMMLOptimizer:
         # pending CUDA kernels complete before tearing down the context.
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-        del simulation.context
-        del simulation
-        del potential  # release TorchScript/JAX model from GPU memory
+        del simulation   # destroys the Context, releasing GPU-side computation state
+        del system       # releases the TorchForce/JAXForce holding ML model weights
+        del potential    # release the MLPotential builder object
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
