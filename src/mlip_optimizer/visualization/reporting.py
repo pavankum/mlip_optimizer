@@ -486,9 +486,9 @@ def create_statistics_report(
     # --- Page 2+: Per-metric detail tables ---
     metrics_info = [
         ("RMSD (Angstrom)", "rmsd"),
-        ("Max Bond Diff (Angstrom)", "bond"),
-        ("Max Angle Diff (degrees)", "angle"),
-        ("Max Torsion Diff (degrees)", "torsion"),
+        ("Mean Bond Diff per conformer (Angstrom)", "bond"),
+        ("Mean Angle Diff per conformer (degrees)", "angle"),
+        ("Mean Torsion Diff per conformer (degrees)", "torsion"),
     ]
     for title_label, prefix in metrics_info:
         _add_metric_detail_page(
@@ -534,12 +534,12 @@ def _add_summary_overview_page(
         "N conf",
         "RMSD\nmean\u00b1std",
         "RMSD\nmax",
-        "Bond\nmean\u00b1std",
-        "Bond\nmax",
-        "Angle\nmean\u00b1std",
-        "Angle\nmax",
-        "Torsion\nmean\u00b1std",
-        "Torsion\nmax",
+        "Mean bond diff\n(\u00c5) mean\u00b1std",
+        "Mean bond diff\n(\u00c5) max",
+        "Mean angle diff\n(\u00b0) mean\u00b1std",
+        "Mean angle diff\n(\u00b0) max",
+        "Mean torsion diff\n(\u00b0) mean\u00b1std",
+        "Mean torsion diff\n(\u00b0) max",
     ]
 
     rows: list[list[str]] = []
