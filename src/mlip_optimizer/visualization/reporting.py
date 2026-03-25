@@ -25,6 +25,29 @@ from mlip_optimizer.comparison import (
 from mlip_optimizer.visualization.drawing import draw_molecule
 
 
+def _param_failure_note(table: list[list], label: str) -> str | None:
+    """Return a footnote string for any rows where FF parametrization failed.
+
+    A row is considered a failure when the second-to-last column (param_id)
+    is an empty string, meaning the atom-index key was not found in the FF
+    lookup dict.  Returns ``None`` when all rows have a valid param_id or
+    when the table has no param columns.
+    """
+    if not table:
+        return None
+    # param columns are only present when len(row) is at least 3 and the
+    # last two entries were appended by _annotate_table_with_ff_params.
+    # We detect them by checking that row[-2] is a str (param_id).
+    failed_keys = [
+        row[0] for row in table
+        if len(row) >= 3 and isinstance(row[-2], str) and row[-2] == ""
+    ]
+    if not failed_keys:
+        return None
+    key_strs = ", ".join(str(k) for k in failed_keys)
+    return f"  [!] {label} parametrization failed (no FF match) for atom indices: {key_strs}"
+
+
 def _escape_mpl_text(text: str) -> str:
     """Escape characters in *text* that clash with matplotlib's mathtext parser.
 
@@ -339,6 +362,17 @@ def create_qm_comparison_report(
     for pot in potential_names:
         diff_headers.append(f"{pot}\n(diff)")
 
+    # Detect whether FF param columns were appended by _annotate_table_with_ff_params.
+    # Rows have len == 2 + n_potentials when no FF, 2 + n_potentials + 2 when FF present.
+    _n_base_cols = 2 + len(potential_names)
+    _has_params = (
+        (qm_comparison.bond_diff_table and len(qm_comparison.bond_diff_table[0]) == _n_base_cols + 2)
+        or (qm_comparison.angle_diff_table and len(qm_comparison.angle_diff_table[0]) == _n_base_cols + 2)
+        or (qm_comparison.torsion_diff_table and len(qm_comparison.torsion_diff_table[0]) == _n_base_cols + 2)
+    )
+    if _has_params:
+        diff_headers += ["Param ID", "SMIRKS"]
+
     # --- Bond differences ---
     if qm_comparison.bond_diff_table:
         tables_text.append(
@@ -351,6 +385,9 @@ def create_qm_comparison_report(
                 tablefmt="simple",
             )
         )
+        _note = _param_failure_note(qm_comparison.bond_diff_table, "Bond")
+        if _note:
+            tables_text.append(_note)
         tables_text.append("\n")
 
     # --- Angle differences ---
@@ -365,6 +402,9 @@ def create_qm_comparison_report(
                 tablefmt="simple",
             )
         )
+        _note = _param_failure_note(qm_comparison.angle_diff_table, "Angle")
+        if _note:
+            tables_text.append(_note)
         tables_text.append("\n")
 
     # --- Torsion differences ---
@@ -379,6 +419,9 @@ def create_qm_comparison_report(
                 tablefmt="simple",
             )
         )
+        _note = _param_failure_note(qm_comparison.torsion_diff_table, "Torsion")
+        if _note:
+            tables_text.append(_note)
         tables_text.append("\n")
 
     if len(tables_text) <= 3:
