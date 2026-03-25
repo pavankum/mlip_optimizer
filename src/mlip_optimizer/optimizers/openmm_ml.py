@@ -307,9 +307,13 @@ class OpenMMMLOptimizer:
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         del simulation   # destroys the Context, releasing GPU-side computation state
+        del integrator   # integrator local var keeps its SWIG refcount > 0 until here;
+                         # must be freed before gc.collect() so the Context destructor
+                         # can fully tear down the TorchForce and its GPU tensors
         del system       # releases the TorchForce/JAXForce holding ML model weights
         del potential    # release the MLPotential builder object
-        gc.collect()
+        gc.collect()     # first pass collects Python-level cycles
+        gc.collect()     # second pass collects objects freed by first-pass finalizers
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
