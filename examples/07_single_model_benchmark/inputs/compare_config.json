@@ -10,5 +10,10 @@
     "max_conformers_per_molecule": 10,
     "bond_threshold": 0.1,
     "angle_threshold": 5.0,
-    "torsion_threshold": 40.0
+    "torsion_threshold": 40.0,
+    "functional_groups_files": [
+        "nitrogen_summary_updated.csv",
+        "phosphorous_summary_updated.csv",
+        "sulfur_summary_updated.csv"
+    ]
 }
