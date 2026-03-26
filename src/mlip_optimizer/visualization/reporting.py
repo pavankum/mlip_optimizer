@@ -24,6 +24,8 @@ from mlip_optimizer.comparison import (
 )
 from mlip_optimizer.visualization.drawing import draw_molecule
 
+plt.rcParams.update({"font.size": 18})
+
 
 def _param_failure_note(table: list[list], label: str) -> str | None:
     """Return a footnote string for any rows where FF parametrization failed.
@@ -95,7 +97,7 @@ def create_title_page(
         0.5,
         0.5,
         title,
-        fontsize=14,
+        fontsize=18,
         ha="center",
         va="center",
         wrap=True,
@@ -173,7 +175,6 @@ def create_comparison_report(
     ax_img.imshow(img)
     ax_img.set_title(
         f"{molecule_label}\nSMILES: {smiles}",
-        fontsize=11,
         wrap=True,
         pad=10,
     )
@@ -328,7 +329,6 @@ def create_qm_comparison_report(
     ax_img.imshow(img)
     ax_img.set_title(
         f"{molecule_label}\nSMILES: {smiles}",
-        fontsize=11,
         wrap=True,
         pad=10,
     )
@@ -480,8 +480,23 @@ def create_statistics_report(
     if not stats:
         return
 
-    # --- Page 1: Summary overview table ---
-    _add_summary_overview_page(stats, potential_names, pdf_pages, dataset_name, dpi)
+    _PARAM_PAGE_INFO = [
+        ("bond_diff_table",    "bond_diffs",    "Bond",    0.1),
+        ("angle_diff_table",   "angle_diffs",   "Angle",   5.0),
+        ("torsion_diff_table", "torsion_diffs", "Torsion", 40.0),
+    ]
+    _bond_thresh, _angle_thresh, _torsion_thresh = (
+        _PARAM_PAGE_INFO[0][3], _PARAM_PAGE_INFO[1][3], _PARAM_PAGE_INFO[2][3],
+    )
+
+    # --- Page 1: Summary overview table (+ threshold-subset table) ---
+    _add_summary_overview_page(
+        stats, potential_names, pdf_pages, dataset_name, dpi,
+        qm_results=qm_results,
+        bond_thresh=_bond_thresh,
+        angle_thresh=_angle_thresh,
+        torsion_thresh=_torsion_thresh,
+    )
 
     # --- Page 2+: Per-metric detail tables ---
     metrics_info = [
@@ -496,13 +511,16 @@ def create_statistics_report(
             dataset_name, dpi,
         )
 
+    # --- Per-parameter error table + bar chart pages ---
+    if qm_results:
+        for attr, metric_attr, label, threshold in _PARAM_PAGE_INFO:
+            _add_param_error_table_and_chart_page(
+                qm_results, potential_names, pdf_pages, attr, metric_attr,
+                label, threshold, dataset_name, dpi,
+            )
+
     # --- Param histogram, distribution, and violin pages ---
     if qm_results:
-        _PARAM_PAGE_INFO = [
-            ("bond_diff_table",    "bond_diffs",    "Bond",    0.1),
-            ("angle_diff_table",   "angle_diffs",   "Angle",   5.0),
-            ("torsion_diff_table", "torsion_diffs", "Torsion", 40.0),
-        ]
         for attr, metric_attr, label, threshold in _PARAM_PAGE_INFO:
             _add_param_histogram_page(
                 qm_results, potential_names, pdf_pages, attr, label,
@@ -524,6 +542,11 @@ def _add_summary_overview_page(
     pdf_pages: PdfPages,
     dataset_name: str,
     dpi: int,
+    *,
+    qm_results: list | None = None,
+    bond_thresh: float = 0.1,
+    angle_thresh: float = 5.0,
+    torsion_thresh: float = 40.0,
 ) -> None:
     """Add the overview page with one row per potential and key statistics."""
     fig, ax = plt.subplots(figsize=(17, 11), dpi=dpi)
@@ -593,6 +616,82 @@ def _add_summary_overview_page(
     text_parts.append(
         tabulate(id_rows, headers=id_headers, tablefmt="simple", stralign="left")
     )
+
+    # ---- Threshold-crossing subset table ----
+    if qm_results:
+        text_parts.append("")
+        text_parts.append("")
+        text_parts.append(
+            f"Threshold-Crossing Subset Statistics  "
+            f"(bond > {bond_thresh}\u00c5  /  angle > {angle_thresh}\u00b0  /  torsion > {torsion_thresh}\u00b0)"
+        )
+        text_parts.append(
+            "  (N conf = conformers exceeding that metric's threshold; "
+            "RMSD column uses union of all three thresholds)"
+        )
+        text_parts.append("=" * 120)
+
+        th_headers = [
+            "Potential",
+            "N conf\n(any thresh)",
+            "RMSD\nmean\u00b1std",
+            "RMSD\nmax",
+            "Mean bond diff\n(\u00c5) mean\u00b1std",
+            "Bond diff\nmax",
+            "N bond\nconfs",
+            "Mean angle diff\n(\u00b0) mean\u00b1std",
+            "Angle diff\nmax",
+            "N angle\nconfs",
+            "Mean torsion diff\n(\u00b0) mean\u00b1std",
+            "Torsion diff\nmax",
+            "N torsion\nconfs",
+        ]
+        th_rows: list[list[str]] = []
+        for pot in potential_names:
+            r_vals: list[float] = []
+            b_vals: list[float] = []
+            a_vals: list[float] = []
+            t_vals: list[float] = []
+            for qm_comp in qm_results:
+                for m in qm_comp.per_potential.get(pot, []):
+                    if m.opt_failed:
+                        continue
+                    b_cross = m.mean_bond_diff > bond_thresh
+                    a_cross = m.mean_angle_diff > angle_thresh
+                    t_cross = m.mean_torsion_diff > torsion_thresh
+                    if b_cross or a_cross or t_cross:
+                        r_vals.append(m.rmsd)
+                    if b_cross:
+                        b_vals.append(m.mean_bond_diff)
+                    if a_cross:
+                        a_vals.append(m.mean_angle_diff)
+                    if t_cross:
+                        t_vals.append(m.mean_torsion_diff)
+
+            def _s(vals: list[float], fmt: str) -> tuple[str, str]:
+                if not vals:
+                    return "N/A", "N/A"
+                return (
+                    f"{float(np.mean(vals)):{fmt}}\u00b1{float(np.std(vals)):{fmt}}",
+                    f"{float(np.max(vals)):{fmt}}",
+                )
+
+            r_ms, r_mx = _s(r_vals, ".4f")
+            b_ms, b_mx = _s(b_vals, ".4f")
+            a_ms, a_mx = _s(a_vals, ".2f")
+            t_ms, t_mx = _s(t_vals, ".2f")
+            th_rows.append([
+                pot,
+                str(len(r_vals)),
+                r_ms, r_mx,
+                b_ms, b_mx, str(len(b_vals)),
+                a_ms, a_mx, str(len(a_vals)),
+                t_ms, t_mx, str(len(t_vals)),
+            ])
+
+        text_parts.append(
+            tabulate(th_rows, headers=th_headers, tablefmt="simple", stralign="right")
+        )
 
     font_size = max(5, 8 - len(potential_names))
     ax.text(
@@ -729,7 +828,6 @@ def _add_param_histogram_page(
     )
     fig.suptitle(
         f"{label} Parameter Threshold-Crossing Count — {dataset_name}",
-        fontsize=12,
     )
 
     x = np.arange(len(all_pids))
@@ -737,11 +835,11 @@ def _add_param_histogram_page(
         ax = axes[row_idx][0]
         counts = [counters[pot_name].get(pid, 0) for pid in all_pids]
         bars = ax.bar(x, counts, color="steelblue", edgecolor="white")
-        ax.set_title(pot_name, fontsize=9)
+        ax.set_title(pot_name)
         ax.set_xticks(x)
-        ax.set_xticklabels(all_pids, rotation=45, ha="right", fontsize=7)
-        ax.set_ylabel("Count", fontsize=8)
-        ax.set_xlabel(f"{label} Param ID", fontsize=8)
+        ax.set_xticklabels(all_pids, rotation=45, ha="right")
+        ax.set_ylabel("Count")
+        ax.set_xlabel(f"{label} Param ID")
         # Annotate bars with count value
         for bar, cnt in zip(bars, counts):
             if cnt > 0:
@@ -749,7 +847,7 @@ def _add_param_histogram_page(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + 0.1,
                     str(cnt),
-                    ha="center", va="bottom", fontsize=6,
+                    ha="center", va="bottom",
                 )
 
     plt.tight_layout(rect=(0, 0.02, 1, 0.95))
@@ -843,8 +941,8 @@ def _add_param_error_distribution_page(
         all_vals = [v for vals in errors_by_pot.values() for v in vals]
         if not all_vals:
             ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                    transform=ax.transAxes, fontsize=8)
-            ax.set_title(title, fontsize=8)
+                    transform=ax.transAxes)
+            ax.set_title(title)
             return
         vmin, vmax = min(all_vals), max(all_vals)
         bins = np.linspace(vmin, vmax, 20).tolist() if vmax > vmin else 10
@@ -859,11 +957,11 @@ def _add_param_error_distribution_page(
         if threshold > 0:
             ax.axvline(threshold, color="red", linestyle=":", linewidth=1.2,
                        alpha=0.8, label=f"threshold ({threshold})")
-        ax.set_title(title, fontsize=8)
-        ax.set_xlabel(f"|error| ({unit})", fontsize=7)
-        ax.set_ylabel("Count", fontsize=7)
-        ax.legend(fontsize=6, loc="upper right")
-        ax.tick_params(labelsize=6)
+        ax.set_title(title)
+        ax.set_xlabel(f"|error| ({unit})")
+        ax.set_ylabel("Count")
+        ax.legend(loc="upper right")
+        ax.tick_params()
 
     params_per_page = 2
     for page_start in range(0, len(all_pids), params_per_page):
@@ -878,7 +976,6 @@ def _add_param_error_distribution_page(
         )
         fig.suptitle(
             f"{label} Error Distributions per Parameter \u2014 {dataset_name}",
-            fontsize=11,
         )
 
         for row_i, pid in enumerate(page_pids):
@@ -951,7 +1048,6 @@ def _add_overall_distribution_and_violin_page(
     )
     fig.suptitle(
         f"{label} Overall Error Distributions (threshold-crossing params) \u2014 {dataset_name}",
-        fontsize=11,
     )
 
     # --- Left: overlapping histograms ---
@@ -973,11 +1069,10 @@ def _add_overall_distribution_and_violin_page(
             linestyle="--",
             linewidth=1.2,
         )
-    ax_hist.set_xlabel(f"|{label} error| ({unit})", fontsize=9)
-    ax_hist.set_ylabel("Count", fontsize=9)
-    ax_hist.set_title("Overlapping distributions", fontsize=9)
-    ax_hist.legend(fontsize=7)
-    ax_hist.tick_params(labelsize=7)
+    ax_hist.set_xlabel(f"|{label} error| ({unit})")
+    ax_hist.set_ylabel("Count")
+    ax_hist.set_title("Overlapping distributions")
+    ax_hist.legend()
 
     # --- Right: violin plot ---
     positions = list(range(1, len(plot_pots) + 1))
@@ -991,16 +1086,204 @@ def _add_overall_distribution_and_violin_page(
             parts[part_name].set_color("black")
             parts[part_name].set_linewidth(1.0)
     ax_violin.set_xticks(positions)
-    ax_violin.set_xticklabels(plot_pots, rotation=30, ha="right", fontsize=7)
-    ax_violin.set_ylabel(f"|{label} error| ({unit})", fontsize=9)
-    ax_violin.set_xlabel("Potential", fontsize=9)
-    ax_violin.set_title("Violin plot", fontsize=9)
+    ax_violin.set_xticklabels(plot_pots, rotation=30, ha="right")
+    ax_violin.set_ylabel(f"|{label} error| ({unit})")
+    ax_violin.set_xlabel("Potential")
+    ax_violin.set_title("Violin plot")
     ax_violin.grid(axis="y", alpha=0.3)
-    ax_violin.tick_params(labelsize=7)
 
     plt.tight_layout(rect=(0, 0.0, 1, 0.93))
     pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
     plt.close(fig)
+
+
+def _add_param_error_table_and_chart_page(
+    qm_results: list,
+    potential_names: list[str],
+    pdf_pages: PdfPages,
+    table_attr: str,
+    metric_attr: str,
+    label: str,
+    threshold: float,
+    dataset_name: str,
+    dpi: int,
+) -> None:
+    """Add per-parameter-ID error table + horizontal bar chart pages for one metric.
+
+    For each FF parameter ID found in threshold-crossing diff-table rows, collects
+    the raw signed per-conformer per-atom-key diff values, splits into:
+
+    - **Overall**: all conformer diffs mapped to that param_id
+    - **Threshold-crossing subset**: only values where ``|diff| > threshold``
+
+    Outputs two page groups per potential:
+
+    1. Text table (param_id rows × overall+thresh columns).
+    2. Horizontal bar chart — left panel: overall mean ± std per param_id;
+       right panel: threshold-crossing subset mean ± std per param_id.
+       Red dashed line at zero; error bars show ± std.
+    """
+    from collections import defaultdict
+
+    n_pots = len(potential_names)
+    param_col = 2 + n_pots
+    smirks_col = param_col + 1
+
+    # ---- Build atom_key → param_id / smirks from threshold-crossing diff rows ----
+    global_key_to_pid: dict[tuple, str] = {}
+    global_key_to_smirks: dict[tuple, str] = {}
+    for qm_comp in qm_results:
+        for row in getattr(qm_comp, table_attr, []):
+            if len(row) > param_col and row[param_col] and row[0] not in global_key_to_pid:
+                global_key_to_pid[row[0]] = row[param_col]
+                global_key_to_smirks[row[0]] = row[smirks_col] if len(row) > smirks_col else ""
+
+    if not global_key_to_pid:
+        return
+
+    # ---- Collect raw signed diff values keyed by (pid, potential) ----
+    pid_all: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    pid_thresh: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+
+    for qm_comp in qm_results:
+        for pot_name in potential_names:
+            for m in qm_comp.per_potential.get(pot_name, []):
+                if m.opt_failed:
+                    continue
+                for atom_key, val in getattr(m, metric_attr, {}).items():
+                    pid = global_key_to_pid.get(atom_key)
+                    if pid is None:
+                        continue
+                    pid_all[pid][pot_name].append(val)
+                    if abs(val) > threshold:
+                        pid_thresh[pid][pot_name].append(val)
+
+    if not pid_all:
+        return
+
+    pid_to_smirks: dict[str, str] = {
+        pid: global_key_to_smirks.get(k, "")
+        for k, pid in global_key_to_pid.items()
+    }
+    all_pids = sorted(pid_all.keys())
+    unit = "\u00c5" if label == "Bond" else "\u00b0"
+    val_fmt = ".4f" if label == "Bond" else ".3f"
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    pot_colors = {p: colors[i % len(colors)] for i, p in enumerate(potential_names)}
+
+    # ---- TABLE PAGE: one per potential ----
+    for pot_name in potential_names:
+        headers = [
+            "Param ID", "SMIRKS (truncated)",
+            f"Overall mean\n({unit})", "Overall\nstd",
+            f"Overall min\n({unit})", f"Overall max\n({unit})", "Overall\nN",
+            f"Thresh mean\n({unit})", "Thresh\nstd",
+            f"Thresh min\n({unit})", f"Thresh max\n({unit})", "Thresh\nN",
+        ]
+        rows_table = []
+        for pid in all_pids:
+            o_vals = pid_all[pid].get(pot_name, [])
+            t_vals = pid_thresh[pid].get(pot_name, [])
+            smirks_s = _escape_mpl_text(pid_to_smirks.get(pid, "")[:50])
+            if o_vals:
+                row: list = [
+                    pid, smirks_s,
+                    f"{float(np.mean(o_vals)):{val_fmt}}",
+                    f"{float(np.std(o_vals)):{val_fmt}}",
+                    f"{float(np.min(o_vals)):{val_fmt}}",
+                    f"{float(np.max(o_vals)):{val_fmt}}",
+                    str(len(o_vals)),
+                ]
+            else:
+                row = [pid, smirks_s, "N/A", "N/A", "N/A", "N/A", "0"]
+            if t_vals:
+                row += [
+                    f"{float(np.mean(t_vals)):{val_fmt}}",
+                    f"{float(np.std(t_vals)):{val_fmt}}",
+                    f"{float(np.min(t_vals)):{val_fmt}}",
+                    f"{float(np.max(t_vals)):{val_fmt}}",
+                    str(len(t_vals)),
+                ]
+            else:
+                row += ["\u2014", "\u2014", "\u2014", "\u2014", "0"]
+            rows_table.append(row)
+
+        fig_h = max(8.0, len(all_pids) * 0.35 + 3.0)
+        fig, ax = plt.subplots(figsize=(17, fig_h), dpi=dpi)
+        ax.axis("off")
+        title_text = (
+            f"{label} Per-Parameter Error Statistics \u2014 "
+            f"{_escape_mpl_text(pot_name)} \u2014 {_escape_mpl_text(dataset_name)}\n"
+            f"Overall: all conformer diffs  |  "
+            f"Thresh: |diff| > {threshold}\u202f{unit}"
+        )
+        full_text = title_text + "\n" + "=" * 140 + "\n"
+        full_text += tabulate(rows_table, headers=headers, tablefmt="simple")
+        font_size = max(5, 7 - len(all_pids) // 25)
+        ax.text(0.01, 0.99, full_text, fontsize=font_size, family="monospace",
+                verticalalignment="top", transform=ax.transAxes)
+        pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
+        plt.close(fig)
+
+    # ---- BAR CHART PAGE: one per potential ----
+    for pot_name in potential_names:
+        color = pot_colors[pot_name]
+        n_pids = len(all_pids)
+        fig_h = max(8.0, n_pids * 0.45 + 2.5)
+
+        fig, axes = plt.subplots(
+            1, 2, figsize=(16, fig_h), dpi=dpi,
+            gridspec_kw={"wspace": 0.45},
+        )
+        fig.suptitle(
+            f"{label} Per-Parameter Error Distribution \u2014 "
+            f"{_escape_mpl_text(pot_name)} \u2014 {_escape_mpl_text(dataset_name)}\n"
+            f"Left: all conformers  |  "
+            f"Right: |diff| > {threshold}\u202f{unit} (threshold-crossing subset)",
+            y=0.998,
+        )
+
+        y_pos = np.arange(n_pids)
+        for ax_panel, use_thresh in zip(axes, [False, True]):
+            means_list: list[float] = []
+            stds_list: list[float] = []
+            for pid in all_pids:
+                vals = (pid_thresh if use_thresh else pid_all)[pid].get(pot_name, [])
+                if vals:
+                    means_list.append(float(np.mean(vals)))
+                    stds_list.append(float(np.std(vals)))
+                else:
+                    means_list.append(0.0)
+                    stds_list.append(0.0)
+
+            means_arr = np.array(means_list)
+            stds_arr = np.array(stds_list)
+
+            ax_panel.barh(
+                y_pos, means_arr,
+                color=color if not use_thresh else "none",
+                alpha=0.82 if not use_thresh else 1.0,
+                hatch="" if not use_thresh else "///",
+                edgecolor=color, linewidth=0.8,
+            )
+            ax_panel.errorbar(
+                means_arr, y_pos, xerr=stds_arr,
+                fmt="none", ecolor="black",
+                elinewidth=0.7, capsize=2, capthick=0.7,
+            )
+            ax_panel.axvline(0, color="red", linestyle="--", linewidth=1.0, alpha=0.7)
+            ax_panel.set_yticks(y_pos)
+            ax_panel.set_yticklabels(all_pids)
+            ax_panel.set_xlabel(f"Mean diff ({unit})")
+            subset_str = "All conformers" if not use_thresh else f"|diff| > {threshold}\u202f{unit}"
+            ax_panel.set_title(f"{subset_str}  (mean \u00b1 std)")
+            ax_panel.grid(axis="x", alpha=0.3)
+            ax_panel.tick_params(axis="x")
+
+        plt.tight_layout(rect=(0, 0, 1, 0.93))
+        pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
+        plt.close(fig)
 
 
 def create_smarts_error_report(
@@ -1155,10 +1438,10 @@ def create_smarts_error_report(
             f"|  hybridization: {safe_hybrid}  |  geometry: {safe_geom}  "
             f"|  dataset: {safe_dataset}"
         )
-        fig.suptitle(f"{title_main}\n{title_smarts}", fontsize=9, y=0.99)
+        fig.suptitle(f"{title_main}\n{title_smarts}", y=0.99)
         fig.text(
             0.5, 0.955, subtitle,
-            ha="center", fontsize=7, style="italic", color="#444444",
+            ha="center", style="italic", color="#444444",
         )
 
         # --- Left: overlapping histograms ---
@@ -1176,11 +1459,10 @@ def create_smarts_error_report(
                 float(np.mean(vals)),
                 color=pot_colors[pot_name], linestyle="--", linewidth=1.4,
             )
-        ax_hist.set_xlabel("RMSD vs QM (\u00c5)", fontsize=9)
-        ax_hist.set_ylabel("Conformer count", fontsize=9)
-        ax_hist.set_title("Population histogram  (dashed line = mean)", fontsize=9)
-        ax_hist.legend(fontsize=7, loc="upper right")
-        ax_hist.tick_params(labelsize=7)
+        ax_hist.set_xlabel("RMSD vs QM (\u00c5)")
+        ax_hist.set_ylabel("Conformer count")
+        ax_hist.set_title("Population histogram  (dashed line = mean)")
+        ax_hist.legend(loc="upper right")
         ax_hist.grid(axis="y", alpha=0.3)
 
         # --- Right: violin plot ---
@@ -1199,13 +1481,12 @@ def create_smarts_error_report(
         ax_violin.set_xticks(positions)
         ax_violin.set_xticklabels(
             [_escape_mpl_text(p) for p in plot_pots],
-            rotation=30, ha="right", fontsize=7,
+            rotation=30, ha="right",
         )
-        ax_violin.set_ylabel("RMSD vs QM (\u00c5)", fontsize=9)
-        ax_violin.set_xlabel("Potential", fontsize=9)
-        ax_violin.set_title("Violin plot", fontsize=9)
+        ax_violin.set_ylabel("RMSD vs QM (\u00c5)")
+        ax_violin.set_xlabel("Potential")
+        ax_violin.set_title("Violin plot")
         ax_violin.grid(axis="y", alpha=0.3)
-        ax_violin.tick_params(labelsize=7)
 
         plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
         pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
