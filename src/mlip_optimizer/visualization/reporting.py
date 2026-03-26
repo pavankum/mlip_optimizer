@@ -1441,24 +1441,27 @@ def create_smarts_error_report(
                 break
 
         # --- Build figure: 1 row × 3 violin subplots ---
+        # Extra height (11 in) keeps the axes from being cramped after
+        # reserving space for the two-line suptitle, the rotated x-tick
+        # labels, the legend row, and the caption row.
         fig, axes = plt.subplots(
-            1, 3, figsize=(22, 9.5), dpi=dpi,
+            1, 3, figsize=(22, 11), dpi=dpi,
             gridspec_kw={"wspace": 0.45},
         )
 
         title_main = f"{safe_element}  \u2014  {safe_fg}"
         title_smarts = f"SMARTS:  {safe_smarts}"
-        subtitle = (
+        # Caption goes at the very bottom as a small italic line, well clear
+        # of the legend and x-tick labels.
+        caption = (
             f"{n_mol_matched} molecule(s) matched  "
             f"|  {n_conf_total} conformer(s) [first potential]  "
             f"|  hybridization: {safe_hybrid}  |  geometry: {safe_geom}  "
             f"|  dataset: {safe_dataset}"
         )
-        fig.suptitle(f"{title_main}\n{title_smarts}", y=0.98)
-        fig.text(
-            0.5, 0.915, subtitle,
-            ha="center", style="italic", color="#444444",
-        )
+
+        # Two-line suptitle only — no subtitle crowded next to it.
+        fig.suptitle(f"{title_main}\n{title_smarts}", y=0.975)
 
         legend_handles: list = []
         legend_labels: list[str] = []
@@ -1504,18 +1507,30 @@ def create_smarts_error_report(
             ax.set_title(metric_label)
             ax.grid(axis="y", alpha=0.3)
 
-        # Legend below all panels, outside the axes
+        # Legend on the right side, vertically centred — avoids the rotated
+        # x-tick labels at the bottom.
         if legend_handles:
             fig.legend(
                 legend_handles, legend_labels,
-                loc="lower center",
-                bbox_to_anchor=(0.5, 0.01),
-                ncol=min(len(legend_handles), 4),
+                loc="center left",
+                bbox_to_anchor=(1.01, 0.5),
+                ncol=1,
                 frameon=True,
             )
 
-        # ~14 % headroom at top for title block, ~12 % at bottom for legend
-        plt.tight_layout(rect=(0.0, 0.12, 1.0, 0.86))
+        # Caption at the very bottom as a small italic figure caption.
+        fig.text(
+            0.5, 0.01, caption,
+            ha="center", va="bottom",
+            style="italic", color="#555555", fontsize=12,
+            wrap=True,
+        )
+
+        # rect: ~17 % top for two-line suptitle at 18pt, ~18 % bottom for
+        # rotated tick labels + caption row. Right edge pulled in to leave
+        # room for the right-side legend (tight_layout + bbox_inches="tight"
+        # handles the actual clipping).
+        plt.tight_layout(rect=(0.0, 0.18, 0.88, 0.83))
         pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
         plt.close(fig)
         plt.close("all")
