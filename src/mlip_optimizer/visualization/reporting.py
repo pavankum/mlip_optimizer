@@ -1296,19 +1296,16 @@ def create_smarts_error_report(
     dataset_name: str = "",
     dpi: int = 300,
 ) -> None:
-    """Add per-functional-group RMSD error distribution pages to a PDF.
+    """Add per-functional-group bond/angle/torsion deviation pages to a PDF.
 
     For each SMARTS pattern in *functional_groups_df*, finds matching
-    molecules in *records* / *qm_results* and plots the conformer-level
-    RMSD-vs-QM distributions for every potential as:
-
-    - **Left panel**: overlapping population histograms (one series per
-      potential; dashed vertical line marks the per-potential mean).
-    - **Right panel**: violin plot (one violin per potential).
+    molecules in *records* / *qm_results* and plots per-conformer
+    mean bond, angle, and torsion deviation distributions as three
+    side-by-side violin subplots (one violin per potential per panel).
 
     A section title page is prepended before the first matching group.
-    Groups with no matching molecules or fewer than two RMSD values per
-    potential are silently skipped.
+    Groups with no matching molecules or insufficient data are silently
+    skipped.
 
     Parameters
     ----------
@@ -1339,7 +1336,6 @@ def create_smarts_error_report(
     pot_colors = {p: colors[i % len(colors)] for i, p in enumerate(potential_names)}
 
     # Pre-convert all QM molecules to RDKit once.
-    # OpenFF Molecule keeps Hs explicit, so no AddHs needed.
     rdmols: list = []
     for rec in records:
         try:
@@ -1348,6 +1344,13 @@ def create_smarts_error_report(
             rdmols.append(None)
 
     any_page_added = False
+
+    # Metrics to plot: (attr on QMComparisonMetrics, axis label, unit)
+    _SMARTS_METRICS = [
+        ("mean_bond_diff",    "Mean Bond Deviation",    "\u00c5"),
+        ("mean_angle_diff",   "Mean Angle Deviation",   "\u00b0"),
+        ("mean_torsion_diff", "Mean Torsion Deviation", "\u00b0"),
+    ]
 
     for _, row in functional_groups_df.iterrows():
         fg_name = str(row.get("Functional Group", "Unknown") or "Unknown")
@@ -1359,7 +1362,6 @@ def create_smarts_error_report(
         if not smarts or smarts.lower() == "nan":
             continue
 
-        # Build RDKit SMARTS query
         try:
             query = Chem.MolFromSmarts(smarts)
         except Exception:
@@ -1381,19 +1383,28 @@ def create_smarts_error_report(
         if not matching_indices:
             continue
 
-        # Collect per-conformer RMSD for each potential
-        pot_rmsds: dict[str, list[float]] = defaultdict(list)
+        # Collect per-conformer bond/angle/torsion mean diffs for each potential
+        pot_data: dict[str, dict[str, list[float]]] = {
+            attr: defaultdict(list) for attr, _, _ in _SMARTS_METRICS
+        }
         for mol_idx in matching_indices:
             if mol_idx >= len(qm_results) or qm_results[mol_idx] is None:
                 continue
             qm_comp = qm_results[mol_idx]
             for pot_name in potential_names:
                 for m in qm_comp.per_potential.get(pot_name, []):
-                    if not m.opt_failed and not np.isnan(m.rmsd):
-                        pot_rmsds[pot_name].append(m.rmsd)
+                    if m.opt_failed:
+                        continue
+                    for attr, _, _ in _SMARTS_METRICS:
+                        val = getattr(m, attr, None)
+                        if val is not None and not np.isnan(val):
+                            pot_data[attr][pot_name].append(val)
 
-        # Need at least 2 data points per potential to draw a violin
-        plot_pots = [p for p in potential_names if len(pot_rmsds.get(p, [])) >= 2]
+        # Keep potentials that have at least 2 data points in any metric
+        plot_pots = [
+            p for p in potential_names
+            if any(len(pot_data[attr].get(p, [])) >= 2 for attr, _, _ in _SMARTS_METRICS)
+        ]
         if not plot_pots:
             continue
 
@@ -1404,15 +1415,12 @@ def create_smarts_error_report(
                 (
                     "Functional Group SMARTS Error Analysis\n\n"
                     f"{dataset_name}\n\n"
-                    "RMSD vs QM — per SMARTS functional group"
+                    "Bond / Angle / Torsion Deviations \u2014 per SMARTS functional group"
                 ),
                 dpi=dpi,
             )
             any_page_added = True
 
-        # --- Escape special matplotlib/mathtext characters ---
-        # SMARTS: '$' starts math mode in matplotlib; '\' triggers escape.
-        # The _escape_mpl_text helper replaces both with safe equivalents.
         safe_fg = _escape_mpl_text(fg_name)
         safe_smarts = _escape_mpl_text(smarts)
         safe_element = _escape_mpl_text(element)
@@ -1421,15 +1429,23 @@ def create_smarts_error_report(
         safe_dataset = _escape_mpl_text(dataset_name)
 
         n_mol_matched = len(matching_indices)
-        n_conf_total = sum(len(pot_rmsds[p]) for p in plot_pots[:1])
+        # Conformer count from the first available metric / potential
+        n_conf_total = 0
+        for attr, _, _ in _SMARTS_METRICS:
+            for p in plot_pots:
+                v = pot_data[attr].get(p, [])
+                if v:
+                    n_conf_total = len(v)
+                    break
+            if n_conf_total:
+                break
 
-        # --- Build figure ---
-        fig, (ax_hist, ax_violin) = plt.subplots(
-            1, 2, figsize=(16, 7), dpi=dpi,
-            gridspec_kw={"wspace": 0.35},
+        # --- Build figure: 1 row × 3 violin subplots ---
+        fig, axes = plt.subplots(
+            1, 3, figsize=(22, 9.5), dpi=dpi,
+            gridspec_kw={"wspace": 0.45},
         )
 
-        # suptitle: functional group + element on line 1; SMARTS on line 2
         title_main = f"{safe_element}  \u2014  {safe_fg}"
         title_smarts = f"SMARTS:  {safe_smarts}"
         subtitle = (
@@ -1438,57 +1454,68 @@ def create_smarts_error_report(
             f"|  hybridization: {safe_hybrid}  |  geometry: {safe_geom}  "
             f"|  dataset: {safe_dataset}"
         )
-        fig.suptitle(f"{title_main}\n{title_smarts}", y=0.99)
+        fig.suptitle(f"{title_main}\n{title_smarts}", y=0.98)
         fig.text(
-            0.5, 0.955, subtitle,
+            0.5, 0.915, subtitle,
             ha="center", style="italic", color="#444444",
         )
 
-        # --- Left: overlapping histograms ---
-        all_vals = [v for p in plot_pots for v in pot_rmsds[p]]
-        vmin, vmax = min(all_vals), max(all_vals)
-        bins: int | np.ndarray = np.linspace(vmin, vmax, 25) if vmax > vmin else 10
-        for pot_name in plot_pots:
-            vals = pot_rmsds[pot_name]
-            ax_hist.hist(
-                vals, bins=bins, alpha=0.5,
-                label=f"{_escape_mpl_text(pot_name)} (n={len(vals)})",
-                color=pot_colors[pot_name], edgecolor="none",
-            )
-            ax_hist.axvline(
-                float(np.mean(vals)),
-                color=pot_colors[pot_name], linestyle="--", linewidth=1.4,
-            )
-        ax_hist.set_xlabel("RMSD vs QM (\u00c5)")
-        ax_hist.set_ylabel("Conformer count")
-        ax_hist.set_title("Population histogram  (dashed line = mean)")
-        ax_hist.legend(loc="upper right")
-        ax_hist.grid(axis="y", alpha=0.3)
+        legend_handles: list = []
+        legend_labels: list[str] = []
 
-        # --- Right: violin plot ---
-        positions = list(range(1, len(plot_pots) + 1))
-        data = [pot_rmsds[p] for p in plot_pots]
-        parts = ax_violin.violinplot(
-            data, positions=positions, showmedians=True, showextrema=True,
-        )
-        for i, pc in enumerate(parts["bodies"]):
-            pc.set_facecolor(pot_colors[plot_pots[i]])
-            pc.set_alpha(0.6)
-        for part_name in ("cbars", "cmins", "cmaxes", "cmedians"):
-            if part_name in parts:
-                parts[part_name].set_color("black")
-                parts[part_name].set_linewidth(1.0)
-        ax_violin.set_xticks(positions)
-        ax_violin.set_xticklabels(
-            [_escape_mpl_text(p) for p in plot_pots],
-            rotation=30, ha="right",
-        )
-        ax_violin.set_ylabel("RMSD vs QM (\u00c5)")
-        ax_violin.set_xlabel("Potential")
-        ax_violin.set_title("Violin plot")
-        ax_violin.grid(axis="y", alpha=0.3)
+        for ax, (attr, metric_label, unit) in zip(axes, _SMARTS_METRICS):
+            # Only include potentials with enough data for this metric
+            metric_pots = [p for p in plot_pots if len(pot_data[attr].get(p, [])) >= 2]
+            if not metric_pots:
+                ax.set_visible(False)
+                continue
 
-        plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
+            positions = list(range(1, len(metric_pots) + 1))
+            data = [pot_data[attr][p] for p in metric_pots]
+
+            parts = ax.violinplot(
+                data, positions=positions, showmedians=True, showextrema=True,
+            )
+            for i, pc in enumerate(parts["bodies"]):
+                pc.set_facecolor(pot_colors[metric_pots[i]])
+                pc.set_alpha(0.65)
+                # Collect legend proxies from the first subplot only
+                if ax is axes[0]:
+                    import matplotlib.patches as mpatches
+                    legend_handles.append(
+                        mpatches.Patch(
+                            facecolor=pot_colors[metric_pots[i]], alpha=0.65,
+                            label=_escape_mpl_text(metric_pots[i]),
+                        )
+                    )
+                    legend_labels.append(_escape_mpl_text(metric_pots[i]))
+            for part_name in ("cbars", "cmins", "cmaxes", "cmedians"):
+                if part_name in parts:
+                    parts[part_name].set_color("black")
+                    parts[part_name].set_linewidth(1.0)
+
+            ax.set_xticks(positions)
+            ax.set_xticklabels(
+                [_escape_mpl_text(p) for p in metric_pots],
+                rotation=35, ha="right",
+            )
+            ax.set_ylabel(f"{metric_label} ({unit})")
+            ax.set_xlabel("Potential")
+            ax.set_title(metric_label)
+            ax.grid(axis="y", alpha=0.3)
+
+        # Legend below all panels, outside the axes
+        if legend_handles:
+            fig.legend(
+                legend_handles, legend_labels,
+                loc="lower center",
+                bbox_to_anchor=(0.5, 0.01),
+                ncol=min(len(legend_handles), 4),
+                frameon=True,
+            )
+
+        # ~14 % headroom at top for title block, ~12 % at bottom for legend
+        plt.tight_layout(rect=(0.0, 0.12, 1.0, 0.86))
         pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
         plt.close(fig)
         plt.close("all")
