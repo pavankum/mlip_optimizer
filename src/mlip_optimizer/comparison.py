@@ -700,11 +700,11 @@ def compute_overall_statistics(
                     mol_id = mol_name
                 all_rmsds.append(m.rmsd)
                 mol_ids_rmsd.append(mol_id)
-                all_max_bond.append(m.max_bond_diff)
+                all_max_bond.append(m.mean_bond_diff)
                 mol_ids_bond.append(mol_id)
-                all_max_angle.append(m.max_angle_diff)
+                all_max_angle.append(m.mean_angle_diff)
                 mol_ids_angle.append(mol_id)
-                all_max_torsion.append(m.max_torsion_diff)
+                all_max_torsion.append(m.mean_torsion_diff)
                 mol_ids_torsion.append(mol_id)
 
         if not all_rmsds:

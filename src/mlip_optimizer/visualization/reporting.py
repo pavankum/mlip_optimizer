@@ -25,6 +25,29 @@ from mlip_optimizer.comparison import (
 from mlip_optimizer.visualization.drawing import draw_molecule
 
 
+def _param_failure_note(table: list[list], label: str) -> str | None:
+    """Return a footnote string for any rows where FF parametrization failed.
+
+    A row is considered a failure when the second-to-last column (param_id)
+    is an empty string, meaning the atom-index key was not found in the FF
+    lookup dict.  Returns ``None`` when all rows have a valid param_id or
+    when the table has no param columns.
+    """
+    if not table:
+        return None
+    # param columns are only present when len(row) is at least 3 and the
+    # last two entries were appended by _annotate_table_with_ff_params.
+    # We detect them by checking that row[-2] is a str (param_id).
+    failed_keys = [
+        row[0] for row in table
+        if len(row) >= 3 and isinstance(row[-2], str) and row[-2] == ""
+    ]
+    if not failed_keys:
+        return None
+    key_strs = ", ".join(str(k) for k in failed_keys)
+    return f"  [!] {label} parametrization failed (no FF match) for atom indices: {key_strs}"
+
+
 def _escape_mpl_text(text: str) -> str:
     """Escape characters in *text* that clash with matplotlib's mathtext parser.
 
@@ -339,6 +362,17 @@ def create_qm_comparison_report(
     for pot in potential_names:
         diff_headers.append(f"{pot}\n(diff)")
 
+    # Detect whether FF param columns were appended by _annotate_table_with_ff_params.
+    # Rows have len == 2 + n_potentials when no FF, 2 + n_potentials + 2 when FF present.
+    _n_base_cols = 2 + len(potential_names)
+    _has_params = (
+        (qm_comparison.bond_diff_table and len(qm_comparison.bond_diff_table[0]) == _n_base_cols + 2)
+        or (qm_comparison.angle_diff_table and len(qm_comparison.angle_diff_table[0]) == _n_base_cols + 2)
+        or (qm_comparison.torsion_diff_table and len(qm_comparison.torsion_diff_table[0]) == _n_base_cols + 2)
+    )
+    if _has_params:
+        diff_headers += ["Param ID", "SMIRKS"]
+
     # --- Bond differences ---
     if qm_comparison.bond_diff_table:
         tables_text.append(
@@ -351,6 +385,9 @@ def create_qm_comparison_report(
                 tablefmt="simple",
             )
         )
+        _note = _param_failure_note(qm_comparison.bond_diff_table, "Bond")
+        if _note:
+            tables_text.append(_note)
         tables_text.append("\n")
 
     # --- Angle differences ---
@@ -365,6 +402,9 @@ def create_qm_comparison_report(
                 tablefmt="simple",
             )
         )
+        _note = _param_failure_note(qm_comparison.angle_diff_table, "Angle")
+        if _note:
+            tables_text.append(_note)
         tables_text.append("\n")
 
     # --- Torsion differences ---
@@ -379,6 +419,9 @@ def create_qm_comparison_report(
                 tablefmt="simple",
             )
         )
+        _note = _param_failure_note(qm_comparison.torsion_diff_table, "Torsion")
+        if _note:
+            tables_text.append(_note)
         tables_text.append("\n")
 
     if len(tables_text) <= 3:
@@ -443,9 +486,9 @@ def create_statistics_report(
     # --- Page 2+: Per-metric detail tables ---
     metrics_info = [
         ("RMSD (Angstrom)", "rmsd"),
-        ("Max Bond Diff (Angstrom)", "bond"),
-        ("Max Angle Diff (degrees)", "angle"),
-        ("Max Torsion Diff (degrees)", "torsion"),
+        ("Mean Bond Diff per conformer (Angstrom)", "bond"),
+        ("Mean Angle Diff per conformer (degrees)", "angle"),
+        ("Mean Torsion Diff per conformer (degrees)", "torsion"),
     ]
     for title_label, prefix in metrics_info:
         _add_metric_detail_page(
@@ -491,12 +534,12 @@ def _add_summary_overview_page(
         "N conf",
         "RMSD\nmean\u00b1std",
         "RMSD\nmax",
-        "Bond\nmean\u00b1std",
-        "Bond\nmax",
-        "Angle\nmean\u00b1std",
-        "Angle\nmax",
-        "Torsion\nmean\u00b1std",
-        "Torsion\nmax",
+        "Mean bond diff\n(\u00c5) mean\u00b1std",
+        "Mean bond diff\n(\u00c5) max",
+        "Mean angle diff\n(\u00b0) mean\u00b1std",
+        "Mean angle diff\n(\u00b0) max",
+        "Mean torsion diff\n(\u00b0) mean\u00b1std",
+        "Mean torsion diff\n(\u00b0) max",
     ]
 
     rows: list[list[str]] = []
@@ -958,3 +1001,213 @@ def _add_overall_distribution_and_violin_page(
     plt.tight_layout(rect=(0, 0.0, 1, 0.93))
     pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
     plt.close(fig)
+
+
+def create_smarts_error_report(
+    qm_results: list,
+    records: list,
+    potential_names: list[str],
+    pdf_pages: PdfPages,
+    functional_groups_df,
+    *,
+    dataset_name: str = "",
+    dpi: int = 300,
+) -> None:
+    """Add per-functional-group RMSD error distribution pages to a PDF.
+
+    For each SMARTS pattern in *functional_groups_df*, finds matching
+    molecules in *records* / *qm_results* and plots the conformer-level
+    RMSD-vs-QM distributions for every potential as:
+
+    - **Left panel**: overlapping population histograms (one series per
+      potential; dashed vertical line marks the per-potential mean).
+    - **Right panel**: violin plot (one violin per potential).
+
+    A section title page is prepended before the first matching group.
+    Groups with no matching molecules or fewer than two RMSD values per
+    potential are silently skipped.
+
+    Parameters
+    ----------
+    qm_results : list[QMComparisonResult]
+        Per-molecule comparison results, parallel to *records*.
+    records : list[MoleculeRecord]
+        QM reference records (each must have a ``.molecule`` OpenFF Molecule).
+    potential_names : list[str]
+        Ordered list of potential model names.
+    pdf_pages : PdfPages
+        Open PdfPages object to append pages into.
+    functional_groups_df : pd.DataFrame
+        DataFrame with at least ``"Functional Group"`` and ``"SMARTS"``
+        columns.  Optional: ``"Element"``, ``"Hybridization"``, ``"Geometry"``.
+    dataset_name : str, optional
+        Dataset label shown in page titles.
+    dpi : int, optional
+        Resolution.  Default ``300``.
+    """
+    from collections import defaultdict
+    from rdkit import Chem
+
+    required = {"Functional Group", "SMARTS"}
+    if not required.issubset(functional_groups_df.columns):
+        return
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    pot_colors = {p: colors[i % len(colors)] for i, p in enumerate(potential_names)}
+
+    # Pre-convert all QM molecules to RDKit once.
+    # OpenFF Molecule keeps Hs explicit, so no AddHs needed.
+    rdmols: list = []
+    for rec in records:
+        try:
+            rdmols.append(rec.molecule.to_rdkit())
+        except Exception:
+            rdmols.append(None)
+
+    any_page_added = False
+
+    for _, row in functional_groups_df.iterrows():
+        fg_name = str(row.get("Functional Group", "Unknown") or "Unknown")
+        smarts = str(row.get("SMARTS", "") or "")
+        element = str(row.get("Element", "") or "")
+        hybridization = str(row.get("Hybridization", "") or "")
+        geometry = str(row.get("Geometry", "") or "")
+
+        if not smarts or smarts.lower() == "nan":
+            continue
+
+        # Build RDKit SMARTS query
+        try:
+            query = Chem.MolFromSmarts(smarts)
+        except Exception:
+            query = None
+        if query is None:
+            continue
+
+        # Substructure-match every molecule
+        matching_indices: list[int] = []
+        for mol_idx, rdmol in enumerate(rdmols):
+            if rdmol is None or mol_idx >= len(qm_results):
+                continue
+            try:
+                if rdmol.HasSubstructMatch(query):
+                    matching_indices.append(mol_idx)
+            except Exception:
+                continue
+
+        if not matching_indices:
+            continue
+
+        # Collect per-conformer RMSD for each potential
+        pot_rmsds: dict[str, list[float]] = defaultdict(list)
+        for mol_idx in matching_indices:
+            if mol_idx >= len(qm_results) or qm_results[mol_idx] is None:
+                continue
+            qm_comp = qm_results[mol_idx]
+            for pot_name in potential_names:
+                for m in qm_comp.per_potential.get(pot_name, []):
+                    if not m.opt_failed and not np.isnan(m.rmsd):
+                        pot_rmsds[pot_name].append(m.rmsd)
+
+        # Need at least 2 data points per potential to draw a violin
+        plot_pots = [p for p in potential_names if len(pot_rmsds.get(p, [])) >= 2]
+        if not plot_pots:
+            continue
+
+        # Section title page on first successful SMARTS group
+        if not any_page_added:
+            create_title_page(
+                pdf_pages,
+                (
+                    "Functional Group SMARTS Error Analysis\n\n"
+                    f"{dataset_name}\n\n"
+                    "RMSD vs QM — per SMARTS functional group"
+                ),
+                dpi=dpi,
+            )
+            any_page_added = True
+
+        # --- Escape special matplotlib/mathtext characters ---
+        # SMARTS: '$' starts math mode in matplotlib; '\' triggers escape.
+        # The _escape_mpl_text helper replaces both with safe equivalents.
+        safe_fg = _escape_mpl_text(fg_name)
+        safe_smarts = _escape_mpl_text(smarts)
+        safe_element = _escape_mpl_text(element)
+        safe_hybrid = _escape_mpl_text(hybridization)
+        safe_geom = _escape_mpl_text(geometry)
+        safe_dataset = _escape_mpl_text(dataset_name)
+
+        n_mol_matched = len(matching_indices)
+        n_conf_total = sum(len(pot_rmsds[p]) for p in plot_pots[:1])
+
+        # --- Build figure ---
+        fig, (ax_hist, ax_violin) = plt.subplots(
+            1, 2, figsize=(16, 7), dpi=dpi,
+            gridspec_kw={"wspace": 0.35},
+        )
+
+        # suptitle: functional group + element on line 1; SMARTS on line 2
+        title_main = f"{safe_element}  \u2014  {safe_fg}"
+        title_smarts = f"SMARTS:  {safe_smarts}"
+        subtitle = (
+            f"{n_mol_matched} molecule(s) matched  "
+            f"|  {n_conf_total} conformer(s) [first potential]  "
+            f"|  hybridization: {safe_hybrid}  |  geometry: {safe_geom}  "
+            f"|  dataset: {safe_dataset}"
+        )
+        fig.suptitle(f"{title_main}\n{title_smarts}", fontsize=9, y=0.99)
+        fig.text(
+            0.5, 0.955, subtitle,
+            ha="center", fontsize=7, style="italic", color="#444444",
+        )
+
+        # --- Left: overlapping histograms ---
+        all_vals = [v for p in plot_pots for v in pot_rmsds[p]]
+        vmin, vmax = min(all_vals), max(all_vals)
+        bins: int | np.ndarray = np.linspace(vmin, vmax, 25) if vmax > vmin else 10
+        for pot_name in plot_pots:
+            vals = pot_rmsds[pot_name]
+            ax_hist.hist(
+                vals, bins=bins, alpha=0.5,
+                label=f"{_escape_mpl_text(pot_name)} (n={len(vals)})",
+                color=pot_colors[pot_name], edgecolor="none",
+            )
+            ax_hist.axvline(
+                float(np.mean(vals)),
+                color=pot_colors[pot_name], linestyle="--", linewidth=1.4,
+            )
+        ax_hist.set_xlabel("RMSD vs QM (\u00c5)", fontsize=9)
+        ax_hist.set_ylabel("Conformer count", fontsize=9)
+        ax_hist.set_title("Population histogram  (dashed line = mean)", fontsize=9)
+        ax_hist.legend(fontsize=7, loc="upper right")
+        ax_hist.tick_params(labelsize=7)
+        ax_hist.grid(axis="y", alpha=0.3)
+
+        # --- Right: violin plot ---
+        positions = list(range(1, len(plot_pots) + 1))
+        data = [pot_rmsds[p] for p in plot_pots]
+        parts = ax_violin.violinplot(
+            data, positions=positions, showmedians=True, showextrema=True,
+        )
+        for i, pc in enumerate(parts["bodies"]):
+            pc.set_facecolor(pot_colors[plot_pots[i]])
+            pc.set_alpha(0.6)
+        for part_name in ("cbars", "cmins", "cmaxes", "cmedians"):
+            if part_name in parts:
+                parts[part_name].set_color("black")
+                parts[part_name].set_linewidth(1.0)
+        ax_violin.set_xticks(positions)
+        ax_violin.set_xticklabels(
+            [_escape_mpl_text(p) for p in plot_pots],
+            rotation=30, ha="right", fontsize=7,
+        )
+        ax_violin.set_ylabel("RMSD vs QM (\u00c5)", fontsize=9)
+        ax_violin.set_xlabel("Potential", fontsize=9)
+        ax_violin.set_title("Violin plot", fontsize=9)
+        ax_violin.grid(axis="y", alpha=0.3)
+        ax_violin.tick_params(labelsize=7)
+
+        plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
+        pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
+        plt.close(fig)
+        plt.close("all")

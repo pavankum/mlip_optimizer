@@ -66,6 +66,8 @@ from mlip_optimizer import OpenFFOptimizer, OpenMMMLOptimizer
 from mlip_optimizer.data import load_records
 from mlip_optimizer.io import write_batch_sdf
 
+import torch
+
 # Allow importing the shared helpers from the same directory.
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -159,6 +161,8 @@ def main(config_path: str | Path) -> None:
         optimized: list[Molecule | None] = []
         n_failed = 0
         for mol_idx, rec in enumerate(records):
+            print(f"At mol_{mol_idx}, GPU memory: {torch.cuda.memory_allocated() / 1e9:.2f} GB", flush=True)
+
             logger.info(
                 "  [%d/%d] %s  (%d conformers)",
                 mol_idx + 1,

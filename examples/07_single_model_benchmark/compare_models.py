@@ -68,6 +68,7 @@ from mlip_optimizer.data import load_records
 from mlip_optimizer.io import read_optimized_sdf, write_qm_comparison_csv
 from mlip_optimizer.visualization import (
     create_qm_comparison_report,
+    create_smarts_error_report,
     create_statistics_report,
     create_title_page,
 )
@@ -147,6 +148,26 @@ def main(config_path: str | Path) -> None:
     bond_thresh = config.get("bond_threshold", 0.1)
     angle_thresh = config.get("angle_threshold", 5.0)
     torsion_thresh = config.get("torsion_threshold", 40.0)
+
+    # Load functional group SMARTS CSV files if provided.
+    # These are dataset-agnostic (element taxonomy) so loaded once here.
+    fg_df = None
+    fg_files_raw = config.get("functional_groups_files", [])
+    if isinstance(fg_files_raw, str):
+        fg_files_raw = [fg_files_raw]
+    if fg_files_raw:
+        import pandas as pd
+        _dfs = []
+        for _fg_raw in fg_files_raw:
+            _fg_path = resolve_path(_fg_raw, config_path)
+            _df = pd.read_csv(str(_fg_path), delimiter=",")
+            # Strip trailing whitespace from all string columns
+            for _col in _df.select_dtypes(include="object").columns:
+                _df[_col] = _df[_col].str.rstrip().fillna("")
+            _dfs.append(_df)
+        if _dfs:
+            fg_df = pd.concat(_dfs, ignore_index=True)
+            logger.info("  Loaded %d functional group SMARTS entries", len(fg_df))
 
     # --- 2. Process each dataset independently ---
     for file_idx, raw in enumerate(raw_files):
@@ -325,6 +346,15 @@ def main(config_path: str | Path) -> None:
                 dataset_name=dataset_name,
                 qm_results=qm_comparison_results,
             )
+            if fg_df is not None:
+                create_smarts_error_report(
+                    qm_comparison_results,
+                    records,
+                    potential_names,
+                    stats_pdf,
+                    fg_df,
+                    dataset_name=dataset_name,
+                )
         logger.info("  Statistics PDF: %s", stats_pdf_path)
 
         # Write CSV
