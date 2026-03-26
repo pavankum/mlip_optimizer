@@ -2,7 +2,7 @@
 
 #SBATCH -J mlip
 #SBATCH -p gpu
-#SBATCH -t 48:00:00
+#SBATCH -t 5:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
 #SBATCH --cpus-per-task=1
@@ -10,6 +10,7 @@
 #SBATCH --account dmobley_lab_gpu
 #SBATCH --gres=gpu:1
 #SBATCH --export ALL
+#SBATCH --exclusive
 #SBATCH --requeue
 # Set the output and error output paths.
 #SBATCH -o  slurm-%J.out
