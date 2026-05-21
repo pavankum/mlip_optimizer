@@ -344,6 +344,9 @@ class QMComparisonMetrics:
     angle_diffs: dict[tuple, float]
     torsion_diffs: dict[tuple, float]
     opt_failed: bool = False
+    bond_values: dict[tuple, float] = field(default_factory=dict)
+    angle_values: dict[tuple, float] = field(default_factory=dict)
+    torsion_values: dict[tuple, float] = field(default_factory=dict)
 
 
 # Sentinel instance for potentials whose optimization failed.
@@ -399,6 +402,9 @@ class QMComparisonResult:
     torsion_diff_table: list[list] = field(default_factory=list)
     molecule_name: str = ""
     record_ids: list[int] = field(default_factory=list)
+    bond_ref_values: dict[tuple, list[float]] = field(default_factory=dict)
+    angle_ref_values: dict[tuple, list[float]] = field(default_factory=dict)
+    torsion_ref_values: dict[tuple, list[float]] = field(default_factory=dict)
 
 
 def evaluate_against_qm(
@@ -529,6 +535,9 @@ def evaluate_against_qm(
                 bond_diffs=b_diffs,
                 angle_diffs=a_diffs,
                 torsion_diffs=t_diffs,
+                bond_values=dict(geom_opt.bond_lengths),
+                angle_values=dict(geom_opt.bond_angles),
+                torsion_values=dict(geom_opt.torsion_angles),
             )
             per_potential[pot_name].append(metrics)
 
@@ -572,6 +581,9 @@ def evaluate_against_qm(
         torsion_diff_table=torsion_table,
         molecule_name=molecule_name,
         record_ids=record_ids if record_ids is not None else [],
+        bond_ref_values=bond_ref_accum,
+        angle_ref_values=angle_ref_accum,
+        torsion_ref_values=torsion_ref_accum,
     )
 
 

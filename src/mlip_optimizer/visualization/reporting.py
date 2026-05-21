@@ -870,13 +870,13 @@ def _add_param_error_distribution_page(
     """Add pages of per-parameter-ID error distributions across potentials.
 
     For each parameter ID that appears in threshold-crossing diff table rows,
-    plots two side-by-side panels:
+    plots three side-by-side panels:
 
-    - Left (A): all per-conformer absolute error values for that parameter,
-      regardless of whether they crossed the threshold.
-    - Right (B): only the individual data points where ``|error| > threshold``.
+    - Left (A): all per-conformer absolute error values for that parameter.
+    - Middle (B): only the individual data points where ``|error| > threshold``.
+    - Right (C): actual value distributions (QM reference + each potential).
 
-    Up to two parameters are shown per page (one row per param, two cols per
+    Up to two parameters are shown per page (one row per param, three cols per
     param).  Dashed vertical lines mark each potential's mean; a red dotted
     line marks the threshold when > 0.
     """
@@ -900,21 +900,37 @@ def _add_param_error_distribution_page(
     if not global_key_to_pid:
         return
 
-    # Second pass: collect ALL per-conformer absolute errors and
-    # THRESHOLD-CROSSING-ONLY values, both keyed by (pid, potential).
+    values_attr = metric_attr.replace("_diffs", "_values")
+    ref_attr = table_attr.replace("_diff_table", "_ref_values")
+
+    # Second pass: collect errors and actual values keyed by (pid, potential).
     pid_errors_all: dict[str, dict[str, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
     pid_errors_thresh: dict[str, dict[str, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
+    pid_values_pot: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    pid_values_qm: dict[str, list[float]] = defaultdict(list)
+
     for qm_comp in qm_results:
+        # Collect QM reference values for each pid
+        ref_vals_map: dict[tuple, list[float]] = getattr(qm_comp, ref_attr, {})
+        for atom_key, vals in ref_vals_map.items():
+            pid = global_key_to_pid.get(atom_key)
+            if pid is None:
+                continue
+            pid_values_qm[pid].extend(vals)
+
         for pot_name in potential_names:
             metrics_list = qm_comp.per_potential.get(pot_name, [])
             for m in metrics_list:
                 if m.opt_failed:
                     continue
                 diffs: dict = getattr(m, metric_attr, {})
+                actual_vals: dict = getattr(m, values_attr, {})
                 for atom_key, val in diffs.items():
                     pid = global_key_to_pid.get(atom_key)
                     if pid is None:
@@ -923,6 +939,11 @@ def _add_param_error_distribution_page(
                     pid_errors_all[pid][pot_name].append(abs_val)
                     if abs_val > threshold:
                         pid_errors_thresh[pid][pot_name].append(abs_val)
+                for atom_key, act_val in actual_vals.items():
+                    pid = global_key_to_pid.get(atom_key)
+                    if pid is None:
+                        continue
+                    pid_values_pot[pid][pot_name].append(act_val)
 
     if not pid_errors_all:
         return
@@ -937,31 +958,61 @@ def _add_param_error_distribution_page(
     pot_colors = {p: colors[i % len(colors)] for i, p in enumerate(potential_names)}
     unit = "\u00c5" if label == "Bond" else "\u00b0"
 
-    def _plot_panel(ax, pid: str, errors_by_pot: dict, title: str) -> None:
+    def _plot_error_panel(ax, pid: str, errors_by_pot: dict, title: str) -> list:
+        """Plot error histogram; return (handle, label) pairs for shared legend."""
         all_vals = [v for vals in errors_by_pot.values() for v in vals]
         if not all_vals:
             ax.text(0.5, 0.5, "No data", ha="center", va="center",
                     transform=ax.transAxes)
-            ax.set_title(title)
-            return
+            ax.set_title(title, fontsize=9)
+            return []
         vmin, vmax = min(all_vals), max(all_vals)
         bins = np.linspace(vmin, vmax, 20).tolist() if vmax > vmin else 10
+        handles = []
         for pot_name in potential_names:
             vals = errors_by_pot.get(pot_name, [])
             if not vals:
                 continue
-            ax.hist(vals, bins=bins, alpha=0.5, label=pot_name,
+            n, _, patches = ax.hist(vals, bins=bins, alpha=0.5, label=pot_name,
                     color=pot_colors[pot_name], edgecolor="none")
             ax.axvline(float(np.mean(vals)), color=pot_colors[pot_name],
                        linestyle="--", linewidth=1.0)
+            handles.append(patches[0])
         if threshold > 0:
-            ax.axvline(threshold, color="red", linestyle=":", linewidth=1.2,
+            line = ax.axvline(threshold, color="red", linestyle=":", linewidth=1.2,
                        alpha=0.8, label=f"threshold ({threshold})")
-        ax.set_title(title)
-        ax.set_xlabel(f"|error| ({unit})")
-        ax.set_ylabel("Count")
-        ax.legend(loc="upper right")
-        ax.tick_params()
+            handles.append(line)
+        ax.set_title(title, fontsize=9)
+        ax.set_xlabel(f"|error| ({unit})", fontsize=8)
+        ax.set_ylabel("Count", fontsize=8)
+        ax.tick_params(labelsize=7)
+        return handles
+
+    def _plot_actual_panel(ax, pid: str, title: str) -> None:
+        """Plot actual value distributions: QM ref + each potential."""
+        qm_vals = pid_values_qm.get(pid, [])
+        pot_vals = pid_values_pot.get(pid, {})
+        all_vals = list(qm_vals) + [v for vals in pot_vals.values() for v in vals]
+        if not all_vals:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes)
+            ax.set_title(title, fontsize=9)
+            return
+        vmin, vmax = min(all_vals), max(all_vals)
+        bins = np.linspace(vmin, vmax, 30).tolist() if vmax > vmin else 10
+        if qm_vals:
+            ax.hist(qm_vals, bins=bins, alpha=0.6, label="QM ref",
+                    color="black", edgecolor="none", zorder=3)
+        for pot_name in potential_names:
+            vals = pot_vals.get(pot_name, [])
+            if not vals:
+                continue
+            ax.hist(vals, bins=bins, alpha=0.4, label=pot_name,
+                    color=pot_colors[pot_name], edgecolor="none")
+        ax.set_title(title, fontsize=9)
+        ax.set_xlabel(f"value ({unit})", fontsize=8)
+        ax.set_ylabel("Count", fontsize=8)
+        ax.tick_params(labelsize=7)
 
     params_per_page = 2
     for page_start in range(0, len(all_pids), params_per_page):
@@ -969,30 +1020,74 @@ def _add_param_error_distribution_page(
         nrows = len(page_pids)
 
         fig, axes = plt.subplots(
-            nrows, 2,
-            figsize=(16, 4 * nrows),
+            nrows, 3,
+            figsize=(22, 4 * nrows),
             dpi=dpi,
             squeeze=False,
         )
         fig.suptitle(
             f"{label} Error Distributions per Parameter \u2014 {dataset_name}",
+            fontsize=11,
         )
 
+        all_handles: list = []
+        all_labels: list = []
+
         for row_i, pid in enumerate(page_pids):
-            _plot_panel(
+            handles = _plot_error_panel(
                 axes[row_i][0],
                 pid,
                 pid_errors_all[pid],
                 f"{label} param {pid} \u2014 all conformer data",
             )
-            _plot_panel(
+            if handles and not all_handles:
+                all_handles = handles
+                all_labels = (
+                    [p for p in potential_names if pid_errors_all[pid].get(p)]
+                    + ([f"threshold ({threshold})"] if threshold > 0 else [])
+                )
+            _plot_error_panel(
                 axes[row_i][1],
                 pid,
                 pid_errors_thresh[pid],
                 f"{label} param {pid} \u2014 threshold-crossing only (|err| > {threshold})",
             )
+            _plot_actual_panel(
+                axes[row_i][2],
+                pid,
+                f"{label} param {pid} \u2014 actual value distributions",
+            )
 
-        plt.tight_layout(rect=(0, 0.0, 1, 0.95))
+        # Shared legend outside the subplots (right side)
+        if all_handles:
+            fig.legend(
+                all_handles, all_labels,
+                loc="upper right",
+                bbox_to_anchor=(1.0, 0.98),
+                fontsize=7,
+                framealpha=0.8,
+                title="Potential",
+                title_fontsize=7,
+            )
+        # Separate QM-ref legend entry for actual panel
+        qm_patch = plt.Rectangle((0, 0), 1, 1, fc="black", alpha=0.6)
+        actual_labels = ["QM ref"] + [p for p in potential_names]
+        actual_colors = ["black"] + [pot_colors[p] for p in potential_names]
+        actual_handles = [
+            plt.Rectangle((0, 0), 1, 1, fc=c, alpha=0.6 if c == "black" else 0.4)
+            for c in actual_colors
+        ]
+        fig.legend(
+            actual_handles, actual_labels,
+            loc="lower right",
+            bbox_to_anchor=(1.0, 0.02),
+            fontsize=7,
+            framealpha=0.8,
+            title="Actual values",
+            title_fontsize=7,
+        )
+
+        plt.tight_layout(rect=(0, 0.0, 0.88, 0.95))
         pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
         plt.close(fig)
 
