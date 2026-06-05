@@ -37,6 +37,7 @@ from mlip_optimizer.comparison import (
     compute_overall_statistics,
     evaluate_against_qm,
     evaluate_model_pairs,
+    get_ff_param_lookup,
 )
 from mlip_optimizer.geometry import (
     ConformerGeometry,
@@ -94,6 +95,7 @@ __all__ = [
     "OverallErrorStatistics",
     "compute_overall_statistics",
     "evaluate_against_qm",
+    "get_ff_param_lookup",
     "TorsionScanResult",
     "run_torsion_scan",
 ]

@@ -633,18 +633,18 @@ def _add_summary_overview_page(
 
         th_headers = [
             "Potential",
-            "N conf\n(any thresh)",
+            "N mols\n(any thresh)",
             "RMSD\nmean\u00b1std",
             "RMSD\nmax",
             "Mean bond diff\n(\u00c5) mean\u00b1std",
             "Bond diff\nmax",
-            "N bond\nconfs",
+            "N mols\nbond",
             "Mean angle diff\n(\u00b0) mean\u00b1std",
             "Angle diff\nmax",
-            "N angle\nconfs",
+            "N mols\nangle",
             "Mean torsion diff\n(\u00b0) mean\u00b1std",
             "Torsion diff\nmax",
-            "N torsion\nconfs",
+            "N mols\ntorsion",
         ]
         th_rows: list[list[str]] = []
         for pot in potential_names:
@@ -653,20 +653,37 @@ def _add_summary_overview_page(
             a_vals: list[float] = []
             t_vals: list[float] = []
             for qm_comp in qm_results:
+                # Aggregate across all conformers of this molecule
+                mol_b = mol_a = mol_t = False
+                mol_r = mol_bv = mol_av = mol_tv = float("nan")
                 for m in qm_comp.per_potential.get(pot, []):
                     if m.opt_failed:
                         continue
-                    b_cross = m.mean_bond_diff > bond_thresh
-                    a_cross = m.mean_angle_diff > angle_thresh
-                    t_cross = m.mean_torsion_diff > torsion_thresh
-                    if b_cross or a_cross or t_cross:
-                        r_vals.append(m.rmsd)
-                    if b_cross:
-                        b_vals.append(m.mean_bond_diff)
-                    if a_cross:
-                        a_vals.append(m.mean_angle_diff)
-                    if t_cross:
-                        t_vals.append(m.mean_torsion_diff)
+                    if m.max_bond_diff > bond_thresh:
+                        mol_b = True
+                    if m.max_angle_diff > angle_thresh:
+                        mol_a = True
+                    if m.max_torsion_diff > torsion_thresh:
+                        mol_t = True
+                    # Keep worst conformer's values for the stats columns
+                    if np.isnan(mol_r) or m.rmsd > mol_r:
+                        mol_r = m.rmsd
+                    if np.isnan(mol_bv) or m.mean_bond_diff > mol_bv:
+                        mol_bv = m.mean_bond_diff
+                    if np.isnan(mol_av) or m.mean_angle_diff > mol_av:
+                        mol_av = m.mean_angle_diff
+                    if np.isnan(mol_tv) or m.mean_torsion_diff > mol_tv:
+                        mol_tv = m.mean_torsion_diff
+                # Include molecule once if it has any threshold crossing
+                if mol_b or mol_a or mol_t:
+                    if not np.isnan(mol_r):
+                        r_vals.append(mol_r)
+                if mol_b and not np.isnan(mol_bv):
+                    b_vals.append(mol_bv)
+                if mol_a and not np.isnan(mol_av):
+                    a_vals.append(mol_av)
+                if mol_t and not np.isnan(mol_tv):
+                    t_vals.append(mol_tv)
 
             def _s(vals: list[float], fmt: str) -> tuple[str, str]:
                 if not vals:
@@ -1059,6 +1076,7 @@ def _add_param_error_distribution_page(
             )
 
         # Shared legend outside the subplots (right side)
+        import matplotlib.patches as mpatches
         if all_handles:
             fig.legend(
                 all_handles, all_labels,
@@ -1070,11 +1088,10 @@ def _add_param_error_distribution_page(
                 title_fontsize=7,
             )
         # Separate QM-ref legend entry for actual panel
-        qm_patch = plt.Rectangle((0, 0), 1, 1, fc="black", alpha=0.6)
         actual_labels = ["QM ref"] + [p for p in potential_names]
         actual_colors = ["black"] + [pot_colors[p] for p in potential_names]
         actual_handles = [
-            plt.Rectangle((0, 0), 1, 1, fc=c, alpha=0.6 if c == "black" else 0.4)
+            mpatches.Rectangle((0, 0), 1, 1, fc=c, alpha=0.6 if c == "black" else 0.4)
             for c in actual_colors
         ]
         fig.legend(
@@ -1167,7 +1184,6 @@ def _add_overall_distribution_and_violin_page(
     ax_hist.set_xlabel(f"|{label} error| ({unit})")
     ax_hist.set_ylabel("Count")
     ax_hist.set_title("Overlapping distributions")
-    ax_hist.legend()
 
     # --- Right: violin plot ---
     positions = list(range(1, len(plot_pots) + 1))
@@ -1187,7 +1203,22 @@ def _add_overall_distribution_and_violin_page(
     ax_violin.set_title("Violin plot")
     ax_violin.grid(axis="y", alpha=0.3)
 
-    plt.tight_layout(rect=(0, 0.0, 1, 0.93))
+    # Figure-level legend above the subplots to avoid overlapping bars
+    import matplotlib.patches as mpatches
+    handles = [
+        mpatches.Rectangle((0, 0), 1, 1, fc=pot_colors[p], alpha=0.5)
+        for p in plot_pots
+    ]
+    fig.legend(
+        handles, plot_pots,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.0),
+        ncols=min(len(plot_pots), 4),
+        fontsize=8,
+        framealpha=0.8,
+    )
+
+    plt.tight_layout(rect=(0, 0.0, 1, 0.88))
     pdf_pages.savefig(fig, bbox_inches="tight", dpi=dpi)
     plt.close(fig)
 

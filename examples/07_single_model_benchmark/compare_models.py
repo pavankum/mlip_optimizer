@@ -29,6 +29,7 @@ JSON configuration
         ],
         "optimized_directory": "../outputs/optimized",
         "output_directory": "../outputs/comparison",
+        "forcefield_name": "openff-2.3.0",
         "max_molecules": 100000,
         "max_conformers_per_molecule": 10,
         "bond_threshold": 0.1,
@@ -45,6 +46,9 @@ Fields:
   Phase 1 (one subdirectory per input data file).
 - **output_directory** *(required)*: Where to write CSV and PDF reports.
   A subdirectory is created per dataset.
+- **forcefield_name** *(required)*: OpenFF ForceField name (e.g.
+  ``"openff-2.3.0"``) used to annotate per-parameter IDs and SMIRKS in
+  the differential tables. Must be installed and loadable.
 - **max_molecules** / **max_conformers_per_molecule** *(optional)*:
   Must match the values used during Phase 1 so molecule ordering is
   identical.
@@ -57,21 +61,18 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from typing import Any
 from concurrent.futures import ProcessPoolExecutor
-from functools import partial
 from pathlib import Path
 
-from matplotlib.backends.backend_pdf import PdfPages
+import numpy as np
+import pandas as pd
 
 from mlip_optimizer import compute_overall_statistics, evaluate_against_qm
 from mlip_optimizer.data import load_records
 from mlip_optimizer.io import read_optimized_sdf, write_qm_comparison_csv
-from mlip_optimizer.visualization import (
-    create_qm_comparison_report,
-    create_smarts_error_report,
-    create_statistics_report,
-    create_title_page,
-)
+from mlip_optimizer.visualization.fg_report import build_report as fg_build_report
+from mlip_optimizer.visualization.mol_report import build_report as mol_build_report
 
 # Allow importing the shared helpers from the same directory.
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -85,6 +86,334 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
 )
+
+
+# ---------------------------------------------------------------------------
+# Helpers to build fg_report data structures from qm_comparison_results
+# ---------------------------------------------------------------------------
+
+
+def _build_stats_dfs(
+    overall_stats: dict,
+    potential_names: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return (stats_df, worst_df) from OverallErrorStatistics."""
+    stats_rows = []
+    worst_rows = []
+    for pot in potential_names:
+        s = overall_stats.get(pot)
+        if s is None:
+            stats_rows.append({"Potential": pot})
+            worst_rows.append({"Potential": pot})
+            continue
+        stats_rows.append({
+            "Potential":      pot,
+            "N_conformers":   s.n_conformers_total,
+            "RMSD_mean":      round(s.rmsd_mean, 3),
+            "RMSD_max":       round(s.rmsd_max, 3),
+            "Bond_mean_Å":    round(s.bond_mean, 2),
+            "Bond_max_Å":     round(s.bond_max, 2),
+            "Angle_mean_°":   round(s.angle_mean, 2),
+            "Angle_max_°":    round(s.angle_max, 2),
+            "Torsion_mean_°": round(s.torsion_mean, 2),
+            "Torsion_max_°":  round(s.torsion_max, 2),
+        })
+        worst_rows.append({
+            "Potential":    pot,
+            "RMSD_max_ID":  s.rmsd_max_id,
+            "Bond_max_ID":  s.bond_max_id,
+            "Angle_max_ID": s.angle_max_id,
+            "Tors_max_ID":  s.torsion_max_id,
+        })
+    return pd.DataFrame(stats_rows), pd.DataFrame(worst_rows)
+
+
+def _build_threshold_df(
+    qm_results: list,
+    potential_names: list[str],
+    bond_thresh: float,
+    angle_thresh: float,
+    torsion_thresh: float,
+) -> pd.DataFrame:
+    """Count molecules where any conformer has any single parameter exceeding the threshold."""
+    rows = []
+    for pot in potential_names:
+        n_bond = n_angle = n_tors = n_any = 0
+        for qm_comp in qm_results:
+            if qm_comp is None:
+                continue
+            mol_bond = mol_angle = mol_tors = False
+            for m in qm_comp.per_potential.get(pot, []):
+                if m.opt_failed:
+                    continue
+                if m.max_bond_diff > bond_thresh:
+                    mol_bond = True
+                if m.max_angle_diff > angle_thresh:
+                    mol_angle = True
+                if m.max_torsion_diff > torsion_thresh:
+                    mol_tors = True
+            if mol_bond:
+                n_bond += 1
+            if mol_angle:
+                n_angle += 1
+            if mol_tors:
+                n_tors += 1
+            if mol_bond or mol_angle or mol_tors:
+                n_any += 1
+        rows.append({
+            "Potential":          pot,
+            "N_mol_any_crossing": n_any,
+            "N_mol_bond":         n_bond,
+            "N_mol_angle":        n_angle,
+            "N_mol_torsion":      n_tors,
+        })
+    return pd.DataFrame(rows)
+
+
+def _build_distribution_data(
+    qm_results: list,
+    potential_names: list[str],
+) -> dict[str, dict[str, list[float]]]:
+    """Collect per-conformer mean errors AND pooled actual/QM-ref values per potential."""
+    data: dict[str, Any] = {
+        "bond":    {p: [] for p in potential_names},
+        "angle":   {p: [] for p in potential_names},
+        "torsion": {p: [] for p in potential_names},
+        # Actual parameter values pooled across all conformers/bonds/angles/torsions
+        "bond_actual":    {p: [] for p in potential_names},
+        "angle_actual":   {p: [] for p in potential_names},
+        "torsion_actual": {p: [] for p in potential_names},
+        # QM reference values pooled (same pools as actuals, for side-by-side comparison)
+        "bond_qm":    [],
+        "angle_qm":   [],
+        "torsion_qm": [],
+    }
+    for qm_comp in qm_results:
+        if qm_comp is None:
+            continue
+        # QM reference value pools
+        for vals in qm_comp.bond_ref_values.values():
+            data["bond_qm"].extend(v for v in vals if not np.isnan(v))
+        for vals in qm_comp.angle_ref_values.values():
+            data["angle_qm"].extend(v for v in vals if not np.isnan(v))
+        for vals in qm_comp.torsion_ref_values.values():
+            data["torsion_qm"].extend(v for v in vals if not np.isnan(v))
+        for pot in potential_names:
+            for m in qm_comp.per_potential.get(pot, []):
+                if m.opt_failed:
+                    continue
+                for key, attr in [("bond", "mean_bond_diff"),
+                                   ("angle", "mean_angle_diff"),
+                                   ("torsion", "mean_torsion_diff")]:
+                    val = getattr(m, attr, None)
+                    if val is not None and not np.isnan(val):
+                        data[key][pot].append(val)
+                # Actual value pools
+                data["bond_actual"][pot].extend(
+                    v for v in m.bond_values.values() if not np.isnan(v)
+                )
+                data["angle_actual"][pot].extend(
+                    v for v in m.angle_values.values() if not np.isnan(v)
+                )
+                data["torsion_actual"][pot].extend(
+                    v for v in m.torsion_values.values() if not np.isnan(v)
+                )
+    return data
+
+
+def _build_groups(
+    qm_results: list,
+    records: list,
+    potential_names: list[str],
+    fg_df,
+    dataset_name: str,
+) -> list[dict]:
+    """Build fg_report group dicts from SMARTS matching."""
+    from rdkit import Chem
+
+    rdmols = []
+    for rec in records:
+        try:
+            rdmols.append(rec.molecule.to_rdkit())
+        except Exception:
+            rdmols.append(None)
+
+    groups = []
+    for _, row in fg_df.iterrows():
+        fg_name    = str(row.get("Functional Group", "") or "")
+        smarts     = str(row.get("SMARTS", "") or "")
+        hybrid     = str(row.get("Hybridization", "") or "")
+        geometry   = str(row.get("Geometry", "") or "")
+
+        if not smarts or smarts.lower() == "nan":
+            continue
+        try:
+            query = Chem.MolFromSmarts(smarts)
+        except Exception:
+            query = None
+        if query is None:
+            continue
+
+        matching = [
+            i for i, rdmol in enumerate(rdmols)
+            if rdmol is not None and i < len(qm_results)
+            and qm_results[i] is not None
+            and rdmol.HasSubstructMatch(query)
+        ]
+        if not matching:
+            continue
+
+        per_pot: dict[str, dict[str, list[float]]] = {
+            pot: {"bond": [], "angle": [], "torsion": []}
+            for pot in potential_names
+        }
+        n_conf = 0
+        for mol_idx in matching:
+            qm_comp = qm_results[mol_idx]
+            for pot in potential_names:
+                for m in qm_comp.per_potential.get(pot, []):
+                    if m.opt_failed:
+                        continue
+                    per_pot[pot]["bond"].append(m.mean_bond_diff)
+                    per_pot[pot]["angle"].append(m.mean_angle_diff)
+                    per_pot[pot]["torsion"].append(m.mean_torsion_diff)
+                    n_conf = max(n_conf, len(per_pot[pot]["bond"]))
+
+        groups.append({
+            "group_name": fg_name,
+            "smarts":     smarts,
+            "metadata": {
+                "n_molecules":   len(matching),
+                "n_conformers":  n_conf,
+                "hybridization": hybrid,
+                "geometry":      geometry,
+                "dataset":       dataset_name,
+            },
+            "per_potential_data": per_pot,
+        })
+    return groups
+
+
+def _build_param_data(
+    qm_results: list,
+    records: list,
+    potential_names: list[str],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Aggregate raw errors/actuals for FF parameters that exceeded deviation thresholds.
+
+    Reads the already-annotated diff tables (param_id + smirks appended by evaluate_against_qm
+    when an OpenFF FF was detected) to identify which atom-key → param_id mappings had severe
+    deviations, then pools raw per-conformer values from QMComparisonMetrics for those keys only.
+    Falls back to element-type keys (C-C, C-N-C, …) when FF annotation is absent.
+
+    Returns
+    -------
+    dict with keys 'bond', 'angle', 'torsion', each mapping:
+        param_key → {'qm_ref': [...], 'errors': {pot: [...]}, 'actuals': {pot: [...]},
+                     'smirks': str, 'elem_key': str}
+    """
+    param_data: dict[str, dict] = {"bond": {}, "angle": {}, "torsion": {}}
+    n_base = 2 + len(potential_names)   # cols before optional (param_id, smirks) suffix
+
+    def _elem_key_for(rdmol, ptype, key):
+        try:
+            atoms = [rdmol.GetAtomWithIdx(i).GetSymbol() for i in key]
+            if ptype == "bond":
+                return "-".join(sorted(atoms))
+            if ptype == "angle":
+                ends = sorted([atoms[0], atoms[2]])
+                return f"{ends[0]}-{atoms[1]}-{ends[1]}"
+            a, b, c, d = atoms
+            if (b, c) > (c, b):
+                a, b, c, d = d, c, b, a
+            return f"{a}-{b}-{c}-{d}"
+        except Exception:
+            return None
+
+    def _entry(ptype, pkey, smirks="", elem_key=""):
+        bucket = param_data[ptype].setdefault(pkey, {
+            "qm_ref": [],
+            "errors":  {p: [] for p in potential_names},
+            "actuals": {p: [] for p in potential_names},
+            "smirks":   smirks,
+            "elem_key": elem_key,
+        })
+        if smirks and not bucket["smirks"]:
+            bucket["smirks"] = smirks
+        if elem_key and not bucket["elem_key"]:
+            bucket["elem_key"] = elem_key
+        return bucket
+
+    for rec, qm_comp in zip(records, qm_results):
+        if qm_comp is None:
+            continue
+        try:
+            rdmol = rec.molecule.to_rdkit()
+        except Exception:
+            rdmol = None
+
+        # Step 1: Build atom_key → (param_key, smirks, elem_key) from annotated diff tables.
+        # Only keys that exceeded the threshold appear in these tables (threshold-filtered).
+        # FF-annotated rows have len > n_base; otherwise fall back to element-type key.
+        ptype_lut: dict[str, dict[tuple, tuple[str, str, str]]] = {
+            "bond": {}, "angle": {}, "torsion": {}
+        }
+        for ptype, table_attr in [
+            ("bond",    "bond_diff_table"),
+            ("angle",   "angle_diff_table"),
+            ("torsion", "torsion_diff_table"),
+        ]:
+            for row in getattr(qm_comp, table_attr, []):
+                if not (isinstance(row, (list, tuple)) and row and isinstance(row[0], tuple)):
+                    continue
+                key = row[0]
+                ek = _elem_key_for(rdmol, ptype, key) if rdmol is not None else ""
+                if len(row) > n_base:
+                    pid    = str(row[n_base]).strip()     if row[n_base]     else ""
+                    smirks = str(row[n_base + 1]).strip() if len(row) > n_base + 1 and row[n_base + 1] else ""
+                else:
+                    pid, smirks = "", ""
+                pkey = pid if pid else (ek or None)
+                if pkey:
+                    ptype_lut[ptype][key]          = (pkey, smirks, ek or "")
+                    ptype_lut[ptype][key[::-1]]    = (pkey, smirks, ek or "")
+
+        if not any(ptype_lut[t] for t in ptype_lut):
+            continue
+
+        # Step 2: Pool raw per-conformer QM reference values for threshold-flagged keys.
+        for ptype, ref_attr in [
+            ("bond",    "bond_ref_values"),
+            ("angle",   "angle_ref_values"),
+            ("torsion", "torsion_ref_values"),
+        ]:
+            for key, vals in getattr(qm_comp, ref_attr, {}).items():
+                lut = ptype_lut[ptype].get(key)
+                if lut:
+                    _entry(ptype, lut[0], lut[1], lut[2])["qm_ref"].extend(
+                        v for v in vals if not np.isnan(v)
+                    )
+
+        # Step 3: Pool raw per-conformer errors and actual values.
+        for pot in potential_names:
+            for m in qm_comp.per_potential.get(pot, []):
+                if m.opt_failed:
+                    continue
+                for ptype, diff_attr, val_attr in [
+                    ("bond",    "bond_diffs",    "bond_values"),
+                    ("angle",   "angle_diffs",   "angle_values"),
+                    ("torsion", "torsion_diffs", "torsion_values"),
+                ]:
+                    for key, err in getattr(m, diff_attr, {}).items():
+                        lut = ptype_lut[ptype].get(key)
+                        if lut and not np.isnan(err):
+                            _entry(ptype, lut[0], lut[1], lut[2])["errors"][pot].append(err)
+                    for key, val in getattr(m, val_attr, {}).items():
+                        lut = ptype_lut[ptype].get(key)
+                        if lut and not np.isnan(val):
+                            _entry(ptype, lut[0], lut[1], lut[2])["actuals"][pot].append(val)
+
+    return param_data
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +499,9 @@ def main(config_path: str | Path) -> None:
             logger.info("  Loaded %d functional group SMARTS entries", len(fg_df))
 
     # --- 2. Process each dataset independently ---
+    all_qm_results: list = []   # accumulate across datasets for combined report
+    all_records:    list = []
+
     for file_idx, raw in enumerate(raw_files):
         data_file = resolve_path(raw, config_path)
         dataset_name = data_file.stem
@@ -253,15 +585,20 @@ def main(config_path: str | Path) -> None:
         n_workers = os.cpu_count() or 1
         logger.info("  Evaluating with %d workers ...", n_workers)
 
-        # Detect the OpenFF ForceField name once (any model name that resolves
-        # to a valid ForceField), so FF parametrization is done per-worker
-        # rather than re-detecting on every molecule.
+        # Determine the reference OpenFF ForceField for parameter labeling.
+        # Priority: explicit config > detected from potential names.
+        # Must succeed; no silent fallbacks.
         from mlip_optimizer.comparison import _detect_forcefield_name
-        ff_name = _detect_forcefield_name(
-            [(p, "") for p in potential_names]
-        ) or ""
-        if ff_name:
-            logger.info("  FF parameter annotation: %s", ff_name)
+        ff_name = (
+            config.get("forcefield_name")
+            or _detect_forcefield_name([(p, "") for p in potential_names])
+        )
+        if not ff_name:
+            raise ValueError(
+                "OpenFF ForceField not found. Provide 'forcefield_name' in config "
+                "or add an OpenFF forcefield (e.g. 'openff-2.3.0') to potential names."
+            )
+        logger.info("  FF parameter annotation: %s", ff_name)
 
         # Build argument tuples for each molecule
         futures_args = []
@@ -303,58 +640,51 @@ def main(config_path: str | Path) -> None:
         # Write per-molecule PDF report (sequential -- matplotlib is not
         # process-safe for shared PdfPages)
         pdf_path = output_dir / "benchmark_report.pdf"
-        with PdfPages(str(pdf_path)) as pdf:
-            title_parts = [
-                f"QM Benchmark Report: {dataset_name}",
-                "",
-                "Potentials: " + ", ".join(potential_names),
-                f"Molecules: {len(records)}",
-            ]
-            create_title_page(pdf, "\n".join(title_parts))
-
-            for mol_idx, (rec, qm_comp) in enumerate(
-                zip(records, qm_comparison_results)
-            ):
-                qca_ids = ", ".join(str(r) for r in rec.record_ids)
-                create_qm_comparison_report(
-                    rec.molecule,
-                    rec.smiles,
-                    qm_comp,
-                    potential_names,
-                    pdf,
-                    molecule_label=f"mol_{mol_idx} (QCA: {qca_ids})",
-                )
-
+        mol_build_report(
+            output_path=str(pdf_path),
+            title=f"QM Benchmark Report: {dataset_name}",
+            records=records,
+            qm_results=qm_comparison_results,
+            potential_names=potential_names,
+        )
         logger.info("  PDF report: %s", pdf_path)
 
-        # --- Overall error statistics PDF ---
+        # --- Overall error statistics PDF (reportlab-based) ---
         overall_stats = compute_overall_statistics(
             qm_comparison_results, potential_names,
         )
+        stats_df, worst_df = _build_stats_dfs(overall_stats, potential_names)
+        threshold_df = _build_threshold_df(
+            qm_comparison_results, potential_names,
+            bond_thresh, angle_thresh, torsion_thresh,
+        )
+        distribution_data = _build_distribution_data(
+            qm_comparison_results, potential_names,
+        )
+        param_data = _build_param_data(
+            qm_comparison_results, records, potential_names,
+        )
+        groups = []
+        if fg_df is not None:
+            groups = _build_groups(
+                qm_comparison_results, records, potential_names,
+                fg_df, dataset_name,
+            )
+
         stats_pdf_path = output_dir / "error_statistics.pdf"
-        with PdfPages(str(stats_pdf_path)) as stats_pdf:
-            create_title_page(
-                stats_pdf,
-                f"Overall Error Statistics\n\n{dataset_name}\n\n"
-                f"Potentials: {', '.join(potential_names)}\n"
-                f"Molecules: {len(records)}",
-            )
-            create_statistics_report(
-                overall_stats,
-                potential_names,
-                stats_pdf,
-                dataset_name=dataset_name,
-                qm_results=qm_comparison_results,
-            )
-            if fg_df is not None:
-                create_smarts_error_report(
-                    qm_comparison_results,
-                    records,
-                    potential_names,
-                    stats_pdf,
-                    fg_df,
-                    dataset_name=dataset_name,
-                )
+        fg_build_report(
+            output_path=str(stats_pdf_path),
+            title="QM Benchmark — Error Statistics",
+            potential_names=potential_names,
+            n_molecules=len(records),
+            stats_df=stats_df,
+            worst_df=worst_df,
+            threshold_df=threshold_df,
+            distribution_data=distribution_data,
+            groups=groups,
+            dataset_name=dataset_name,
+            param_data=param_data,
+        )
         logger.info("  Statistics PDF: %s", stats_pdf_path)
 
         # Write CSV
@@ -366,6 +696,40 @@ def main(config_path: str | Path) -> None:
         )
         logger.info("  Detail CSV:  %s", detail_csv)
         logger.info("  Summary CSV: %s", summary_csv)
+
+        all_qm_results.extend(r for r in qm_comparison_results if r is not None)
+        all_records.extend(records)
+
+    # --- 3. Combined report across all datasets ---
+    if len(raw_files) > 1 and all_qm_results:
+        logger.info("=== Generating combined report ===")
+        combined_dir = output_base / "combined"
+        combined_dir.mkdir(parents=True, exist_ok=True)
+
+        overall_stats = compute_overall_statistics(all_qm_results, potential_names)
+        stats_df, worst_df = _build_stats_dfs(overall_stats, potential_names)
+        threshold_df = _build_threshold_df(
+            all_qm_results, potential_names,
+            bond_thresh, angle_thresh, torsion_thresh,
+        )
+        distribution_data = _build_distribution_data(all_qm_results, potential_names)
+        param_data = _build_param_data(all_qm_results, all_records, potential_names)
+
+        combined_pdf = combined_dir / "error_statistics.pdf"
+        fg_build_report(
+            output_path=str(combined_pdf),
+            title="QM Benchmark — Combined Error Statistics",
+            potential_names=potential_names,
+            n_molecules=len(all_records),
+            stats_df=stats_df,
+            worst_df=worst_df,
+            threshold_df=threshold_df,
+            distribution_data=distribution_data,
+            groups=[],
+            dataset_name="All datasets combined",
+            param_data=param_data,
+        )
+        logger.info("  Combined PDF: %s", combined_pdf)
 
     logger.info("Comparison complete.")
 

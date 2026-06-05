@@ -143,10 +143,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-<<<<<<< HEAD
-=======
 .vscode/settings.json
->>>>>>> e72b0c4 (add files for optimization)
 
 # Spyder project settings
 .spyderproject
@@ -209,7 +206,21 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-<<<<<<< HEAD
-=======
 
->>>>>>> e72b0c4 (add files for optimization)
+# ML model weights and checkpoints
+models/*.model
+models/*.fnx
+models/*.ckpt
+models/*.pt
+models/*.pth
+
+# QCArchive HTTP cache
+api.qcarchive.molssi.org_443/
+
+# Generated reports and outputs
+*.pdf
+examples/*/outputs/
+examples/*/*.sdf
+
+# Benchmark / scratch files
+examples/04_single_molecule/*_debug.py

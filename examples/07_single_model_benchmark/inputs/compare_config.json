@@ -6,6 +6,7 @@
     ],
     "optimized_directory": "../outputs/optimized",
     "output_directory": "../outputs/comparison",
+    "forcefield_name": "openff-2.3.0",
     "max_molecules": 100000,
     "max_conformers_per_molecule": 10,
     "bond_threshold": 0.1,

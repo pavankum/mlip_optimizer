@@ -232,6 +232,19 @@ def _get_ff_param_lookup(
     return lookup
 
 
+def get_ff_param_lookup(
+    molecule: Molecule,
+    forcefield_name: str,
+) -> dict[tuple, tuple[str, str]]:
+    """Build ``{atom_indices_tuple: (param_id, smirks)}`` from ForceField labeling.
+
+    Both orderings of each key are stored so lookups succeed regardless of
+    atom-index direction.  Returns an empty dict when the toolkit is unavailable
+    or labeling fails.
+    """
+    return _get_ff_param_lookup(molecule, forcefield_name)
+
+
 def _annotate_table_with_ff_params(
     table: list[list],
     ff_lookup: dict[tuple, tuple[str, str]],
