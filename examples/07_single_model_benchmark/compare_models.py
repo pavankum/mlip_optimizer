@@ -298,6 +298,7 @@ def _build_param_data(
     qm_results: list,
     records: list,
     potential_names: list[str],
+    forcefield_name: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Aggregate raw errors/actuals for FF parameters that exceeded deviation thresholds.
 
@@ -306,10 +307,15 @@ def _build_param_data(
     deviations, then pools raw per-conformer values from QMComparisonMetrics for those keys only.
     Falls back to element-type keys (C-C, C-N-C, …) when FF annotation is absent.
 
+    When *forcefield_name* is supplied a second pass labels every molecule with the ForceField
+    and collects full-dataset distributions for the same parameter IDs (stored as ``qm_ref_all``
+    and ``actuals_all``), enabling comparison of high-error subsets vs. the full dataset.
+
     Returns
     -------
     dict with keys 'bond', 'angle', 'torsion', each mapping:
         param_key → {'qm_ref': [...], 'errors': {pot: [...]}, 'actuals': {pot: [...]},
+                     'qm_ref_all': [...], 'actuals_all': {pot: [...]},
                      'smirks': str, 'elem_key': str}
     """
     param_data: dict[str, dict] = {"bond": {}, "angle": {}, "torsion": {}}
@@ -332,11 +338,13 @@ def _build_param_data(
 
     def _entry(ptype, pkey, smirks="", elem_key=""):
         bucket = param_data[ptype].setdefault(pkey, {
-            "qm_ref": [],
-            "errors":  {p: [] for p in potential_names},
-            "actuals": {p: [] for p in potential_names},
-            "smirks":   smirks,
-            "elem_key": elem_key,
+            "qm_ref":     [],
+            "errors":     {p: [] for p in potential_names},
+            "actuals":    {p: [] for p in potential_names},
+            "qm_ref_all": [],
+            "actuals_all": {p: [] for p in potential_names},
+            "smirks":     smirks,
+            "elem_key":   elem_key,
         })
         if smirks and not bucket["smirks"]:
             bucket["smirks"] = smirks
@@ -412,6 +420,47 @@ def _build_param_data(
                         lut = ptype_lut[ptype].get(key)
                         if lut and not np.isnan(val):
                             _entry(ptype, lut[0], lut[1], lut[2])["actuals"][pot].append(val)
+
+    # Second pass: collect full-dataset distributions using FF labeling.
+    # Only runs when forcefield_name is provided; covers the same param_ids
+    # already identified by the high-error first pass.
+    if forcefield_name:
+        all_pkeys = {
+            ptype: set(param_data[ptype].keys())
+            for ptype in ('bond', 'angle', 'torsion')
+        }
+        if any(all_pkeys[t] for t in all_pkeys):
+            from mlip_optimizer.analysis.bundle import _build_ff_param_lookups
+            ff_lookups = _build_ff_param_lookups(records, forcefield_name)
+            for rec, qm_comp, ff_lut in zip(records, qm_results, ff_lookups):
+                if qm_comp is None or not ff_lut:
+                    continue
+                for ptype, ref_attr in [
+                    ('bond',    'bond_ref_values'),
+                    ('angle',   'angle_ref_values'),
+                    ('torsion', 'torsion_ref_values'),
+                ]:
+                    for atom_key, vals in getattr(qm_comp, ref_attr, {}).items():
+                        entry = ff_lut.get(atom_key) or ff_lut.get(atom_key[::-1])
+                        pid = entry[0] if entry else ''
+                        if pid in all_pkeys[ptype]:
+                            param_data[ptype][pid]['qm_ref_all'].extend(
+                                v for v in vals if not np.isnan(v)
+                            )
+                for pot in potential_names:
+                    for m in qm_comp.per_potential.get(pot, []):
+                        if m.opt_failed:
+                            continue
+                        for ptype, val_attr in [
+                            ('bond',    'bond_values'),
+                            ('angle',   'angle_values'),
+                            ('torsion', 'torsion_values'),
+                        ]:
+                            for atom_key, val in getattr(m, val_attr, {}).items():
+                                entry = ff_lut.get(atom_key) or ff_lut.get(atom_key[::-1])
+                                pid = entry[0] if entry else ''
+                                if pid in all_pkeys[ptype] and not np.isnan(val):
+                                    param_data[ptype][pid]['actuals_all'][pot].append(val)
 
     return param_data
 
@@ -501,6 +550,7 @@ def main(config_path: str | Path) -> None:
     # --- 2. Process each dataset independently ---
     all_qm_results: list = []   # accumulate across datasets for combined report
     all_records:    list = []
+    last_ff_name: str | None = None
 
     for file_idx, raw in enumerate(raw_files):
         data_file = resolve_path(raw, config_path)
@@ -599,6 +649,7 @@ def main(config_path: str | Path) -> None:
                 "or add an OpenFF forcefield (e.g. 'openff-2.3.0') to potential names."
             )
         logger.info("  FF parameter annotation: %s", ff_name)
+        last_ff_name = ff_name
 
         # Build argument tuples for each molecule
         futures_args = []
@@ -663,6 +714,7 @@ def main(config_path: str | Path) -> None:
         )
         param_data = _build_param_data(
             qm_comparison_results, records, potential_names,
+            forcefield_name=ff_name,
         )
         groups = []
         if fg_df is not None:
@@ -713,7 +765,10 @@ def main(config_path: str | Path) -> None:
             bond_thresh, angle_thresh, torsion_thresh,
         )
         distribution_data = _build_distribution_data(all_qm_results, potential_names)
-        param_data = _build_param_data(all_qm_results, all_records, potential_names)
+        param_data = _build_param_data(
+            all_qm_results, all_records, potential_names,
+            forcefield_name=last_ff_name,
+        )
 
         combined_pdf = combined_dir / "error_statistics.pdf"
         fg_build_report(

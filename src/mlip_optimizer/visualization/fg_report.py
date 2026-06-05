@@ -438,11 +438,18 @@ def render_distribution_page(
     dataset_name: str = "",
     per_potential_actuals: dict[str, list[float]] | None = None,
     qm_ref_values: list[float] | None = None,
+    per_potential_actuals_all: dict[str, list[float]] | None = None,
+    qm_ref_all: list[float] | None = None,
 ) -> RLImage | None:
     """2×2 grid: actual-value distributions (left) and error distributions (right).
 
     Row 0: overlapping histograms.
     Row 1: violin plots.
+
+    When *qm_ref_all* / *per_potential_actuals_all* are provided the actual-value
+    panels show both the full-dataset distribution (step/outline) and the
+    high-error subset (filled), so you can see how the problematic subset relates
+    to the overall population.
     Legend is placed outside the axes to the right.
     """
     label = _sanitize_for_matplotlib(label)
@@ -453,13 +460,24 @@ def render_distribution_page(
     has_actual = bool(
         per_potential_actuals and any(per_potential_actuals.get(p) for p in plot_pots)
     )
+    has_all = bool(qm_ref_all) or bool(
+        per_potential_actuals_all and any(per_potential_actuals_all.get(p) for p in plot_pots)
+    )
 
     pot_colors = {p: _pot_color(p, i) for i, p in enumerate(potential_names)}
     short_names = {p: _shorten_pot_name(p) for p in potential_names}
 
+    # Width scales with the number of violins when (all + high-error) pairs are shown
+    n_violin_actual = 0
+    if has_actual:
+        n_violin_actual = (1 if (qm_ref_values or qm_ref_all) else 0) + len(plot_pots)
+        if has_all:
+            n_violin_actual *= 2
+    fig_w = max(FIG_WIDTH, n_violin_actual * 1.05 + 2.5) if n_violin_actual else FIG_WIDTH
+
     if has_actual:
         fig, axes = plt.subplots(
-            2, 2, figsize=(FIG_WIDTH, _DIST_FIG_HEIGHT), dpi=DPI,
+            2, 2, figsize=(fig_w, _DIST_FIG_HEIGHT), dpi=DPI,
         )
         fig.subplots_adjust(left=0.07, right=0.82, top=0.88, bottom=0.20,
                             wspace=0.32, hspace=0.55)
@@ -477,8 +495,8 @@ def render_distribution_page(
         fontsize=TITLE_FS, y=0.97,
     )
 
-    # ---- helper: violin ----
-    def _draw_violin(ax, data_lists, labels, clrs):
+    # ---- helper: violin (supports per-entry alpha and hatch) ----
+    def _draw_violin(ax, data_lists, labels, clrs, alphas=None, hatches=None):
         if not data_lists:
             ax.text(0.5, 0.5, "no data", ha="center", va="center",
                     transform=ax.transAxes, fontsize=AXIS_FS)
@@ -487,7 +505,11 @@ def render_distribution_page(
         parts = ax.violinplot(data_lists, positions=range(len(data_lists)),
                               showmedians=True, showextrema=True)
         for j, body in enumerate(parts["bodies"]):
-            body.set_facecolor(clrs[j]); body.set_alpha(0.6)
+            body.set_facecolor(clrs[j])
+            body.set_alpha(alphas[j] if alphas else 0.6)
+            if hatches and hatches[j]:
+                body.set_hatch(hatches[j])
+                body.set_edgecolor(clrs[j])
         for pn in ("cbars", "cmins", "cmaxes", "cmedians"):
             if pn in parts:
                 parts[pn].set_color("black"); parts[pn].set_linewidth(0.8)
@@ -501,34 +523,99 @@ def render_distribution_page(
     if has_actual:
         act_data  = [per_potential_actuals.get(p, []) for p in plot_pots]
         qm_vals   = qm_ref_values or []
-        all_act   = [v for lst in act_data for v in lst] + qm_vals
-        if all_act:
-            v0, v1 = min(all_act), max(all_act)
-            bins_a  = np.linspace(v0, v1, 40) if v1 > v0 else 20
-            for p, vals in zip(plot_pots, act_data):
-                if vals:
-                    ax_ah.hist(vals, bins=bins_a, alpha=0.5,
-                               color=pot_colors[p], edgecolor="none")
-                    ax_ah.axvline(float(np.mean(vals)), color=pot_colors[p],
-                                  linestyle="--", linewidth=1.0)
-            if qm_vals:
-                ax_ah.hist(qm_vals, bins=bins_a, alpha=0.3,
-                           color="gray", edgecolor="none", label="QM ref")
-                ax_ah.axvline(float(np.mean(qm_vals)), color="gray",
-                              linestyle=":", linewidth=1.2)
+        act_data_all = [
+            (per_potential_actuals_all.get(p, []) if per_potential_actuals_all else [])
+            for p in plot_pots
+        ]
+
+        # Common bin range spanning high-error and full distributions
+        all_for_bins = (
+            [v for lst in act_data for v in lst]
+            + qm_vals
+            + (qm_ref_all or [])
+            + [v for lst in act_data_all for v in lst]
+        )
+        if all_for_bins:
+            v0, v1 = min(all_for_bins), max(all_for_bins)
+            bins_a = np.linspace(v0, v1, 40) if v1 > v0 else 20
+        else:
+            bins_a = 20
+
+        # Full-dataset — step/outline style (drawn first, behind)
+        if has_all:
+            if qm_ref_all:
+                ax_ah.hist(qm_ref_all, bins=bins_a, histtype='step',
+                           linewidth=1.5, linestyle='--', color='gray', alpha=0.9)
+                ax_ah.axvline(float(np.mean(qm_ref_all)), color='gray',
+                              linestyle=':', linewidth=0.8)
+            for p, vals_all in zip(plot_pots, act_data_all):
+                if vals_all:
+                    ax_ah.hist(vals_all, bins=bins_a, histtype='step',
+                               linewidth=1.5, linestyle='--',
+                               color=pot_colors[p], alpha=0.85)
+                    ax_ah.axvline(float(np.mean(vals_all)), color=pot_colors[p],
+                                  linestyle=':', linewidth=0.8)
+
+        # High-error subset — solid fill (drawn on top, current behaviour)
+        for p, vals in zip(plot_pots, act_data):
+            if vals:
+                ax_ah.hist(vals, bins=bins_a, alpha=0.5,
+                           color=pot_colors[p], edgecolor="none")
+                ax_ah.axvline(float(np.mean(vals)), color=pot_colors[p],
+                              linestyle="--", linewidth=1.0)
+        if qm_vals:
+            ax_ah.hist(qm_vals, bins=bins_a, alpha=0.3,
+                       color="gray", edgecolor="none",
+                       label='QM ref*' if has_all else 'QM ref')
+            ax_ah.axvline(float(np.mean(qm_vals)), color="gray",
+                          linestyle=":", linewidth=1.2)
+
         ax_ah.set_xlabel(f"Actual value ({unit})", fontsize=AXIS_FS)
         ax_ah.set_ylabel("Count", fontsize=AXIS_FS)
-        ax_ah.set_title("Actual values — histogram", fontsize=TITLE_FS, pad=8)
+        hist_title = "Actual values — histogram"
+        if has_all:
+            hist_title += "  (dashed = all, filled = high-error*)"
+        ax_ah.set_title(hist_title, fontsize=TITLE_FS - (1 if has_all else 0), pad=8)
         ax_ah.tick_params(labelsize=TICK_FS)
         ax_ah.tick_params(axis="x", labelrotation=X_TICK_ROTATION)
         ax_ah.spines[["top", "right"]].set_visible(False)
 
-        viol_data_a = ([qm_vals] if qm_vals else []) + act_data
-        viol_lbls_a = (["QM ref"] if qm_vals else []) + [short_names[p] for p in plot_pots]
-        viol_clrs_a = (["gray"]   if qm_vals else []) + [pot_colors[p] for p in plot_pots]
-        _draw_violin(ax_av, viol_data_a, viol_lbls_a, viol_clrs_a)
+        # Build violin lists — interleave (all, high-error*) pairs when full data present
+        viol_data_a: list = []
+        viol_lbls_a: list[str] = []
+        viol_clrs_a: list = []
+        viol_alphas_a: list[float] = []
+        viol_hatches_a: list = []
+
+        if has_all:
+            if qm_ref_all:
+                viol_data_a.append(qm_ref_all);  viol_lbls_a.append('QM (all)')
+                viol_clrs_a.append('gray');       viol_alphas_a.append(0.30); viol_hatches_a.append('///')
+            if qm_vals:
+                viol_data_a.append(qm_vals);     viol_lbls_a.append('QM*')
+                viol_clrs_a.append('gray');       viol_alphas_a.append(0.70); viol_hatches_a.append(None)
+            for p, vals_all, vals_hi in zip(plot_pots, act_data_all, act_data):
+                sn = short_names[p]
+                if vals_all:
+                    viol_data_a.append(vals_all); viol_lbls_a.append(f'{sn} (all)')
+                    viol_clrs_a.append(pot_colors[p]); viol_alphas_a.append(0.25); viol_hatches_a.append('///')
+                if vals_hi:
+                    viol_data_a.append(vals_hi);  viol_lbls_a.append(f'{sn}*')
+                    viol_clrs_a.append(pot_colors[p]); viol_alphas_a.append(0.65); viol_hatches_a.append(None)
+        else:
+            viol_data_a   = ([qm_vals] if qm_vals else []) + act_data
+            viol_lbls_a   = (["QM ref"] if qm_vals else []) + [short_names[p] for p in plot_pots]
+            viol_clrs_a   = (["gray"]   if qm_vals else []) + [pot_colors[p] for p in plot_pots]
+            viol_alphas_a = [0.6] * len(viol_data_a)
+            viol_hatches_a = [None] * len(viol_data_a)
+
+        _draw_violin(ax_av, viol_data_a, viol_lbls_a, viol_clrs_a,
+                     alphas=viol_alphas_a, hatches=viol_hatches_a)
         ax_av.set_ylabel(f"Actual value ({unit})", fontsize=AXIS_FS)
-        ax_av.set_title("Actual values — violin", fontsize=TITLE_FS, pad=8)
+        violin_title = "Actual values — violin"
+        if has_all:
+            violin_title += "  (hatched = all, solid = high-error*)"
+        ax_av.set_title(violin_title, fontsize=TITLE_FS - (1 if has_all else 0), pad=8)
 
     # ---- error panels ----
     err_data  = [per_potential_errors[p] for p in plot_pots]
@@ -898,6 +985,8 @@ def render_param_pages(
                 dataset_name=dataset_name,
                 per_potential_actuals=act_dict,
                 qm_ref_values=qm_ref,
+                per_potential_actuals_all=entry.get('actuals_all'),
+                qm_ref_all=entry.get('qm_ref_all') or None,
             )
             if img:
                 flowables.append(img)

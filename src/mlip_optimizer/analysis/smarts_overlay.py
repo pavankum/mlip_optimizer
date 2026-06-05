@@ -155,6 +155,7 @@ def collect_overlay_data(
     forcefield_name: str | None = None,
     ff_bond_param_ids: set[str] | None = None,
     ff_angle_param_ids: set[str] | None = None,
+    high_error_only: bool = False,
 ) -> tuple[dict, pd.DataFrame]:
     """Collect SMARTS-filtered geometry data from comparison bundles.
 
@@ -184,6 +185,13 @@ def collect_overlay_data(
     ff_angle_param_ids : set[str] or None, optional
         If given, only include angle instances whose FF parameter ID is in this
         set (e.g. ``{'a10'}``).  Requires *forcefield_name*.
+    high_error_only : bool, optional
+        If ``True``, restrict to geometry instances that exceeded the error
+        threshold in at least one conformer (i.e. appear in the molecule's
+        ``bond_diff_table`` / ``angle_diff_table``).  This matches the subset
+        shown in the per-parameter pages of the comparison report, where the
+        QM reference distribution is built from high-error instances only.
+        Default ``False`` (include all matched instances).
 
     Returns
     -------
@@ -240,12 +248,26 @@ def collect_overlay_data(
                     except Exception:
                         pass
 
+            high_error_bond_keys: set | None = None
+            high_error_angle_keys: set | None = None
+            if high_error_only:
+                high_error_bond_keys = {
+                    row[0] for row in qm_comp.bond_diff_table
+                    if isinstance(row, (list, tuple)) and row and isinstance(row[0], tuple)
+                }
+                high_error_angle_keys = {
+                    row[0] for row in qm_comp.angle_diff_table
+                    if isinstance(row, (list, tuple)) and row and isinstance(row[0], tuple)
+                }
+
             bond_keys_by_label: dict[str, set] = {}
             molecule_bond_union: set = set()
             for item in bond_patterns:
                 keys = _extract_mapped_keys(rdmol, item, 'bond')
                 if ff_bond_param_ids is not None:
                     keys = {k for k in keys if _ff_param_id(k, ff_lookup) in ff_bond_param_ids}
+                if high_error_bond_keys is not None:
+                    keys = {k for k in keys if _bond_key_in(k, high_error_bond_keys)}
                 if keys:
                     bond_keys_by_label[item['label']] = keys
                     molecule_bond_union.update(keys)
@@ -256,6 +278,8 @@ def collect_overlay_data(
                 keys = _extract_mapped_keys(rdmol, item, 'angle')
                 if ff_angle_param_ids is not None:
                     keys = {k for k in keys if _ff_param_id(k, ff_lookup) in ff_angle_param_ids}
+                if high_error_angle_keys is not None:
+                    keys = {k for k in keys if _angle_key_in(k, high_error_angle_keys)}
                 if keys:
                     angle_keys_by_label[item['label']] = keys
                     molecule_angle_union.update(keys)
