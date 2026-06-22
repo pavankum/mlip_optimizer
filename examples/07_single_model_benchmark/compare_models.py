@@ -69,6 +69,10 @@ import numpy as np
 import pandas as pd
 
 from mlip_optimizer import compute_overall_statistics, evaluate_against_qm
+from mlip_optimizer.analysis.functional_groups import (
+    load_functional_groups,
+    match_and_cache,
+)
 from mlip_optimizer.data import load_records
 from mlip_optimizer.io import read_optimized_sdf, write_qm_comparison_csv
 from mlip_optimizer.visualization.fg_report import build_report as fg_build_report
@@ -527,25 +531,29 @@ def main(config_path: str | Path) -> None:
     angle_thresh = config.get("angle_threshold", 5.0)
     torsion_thresh = config.get("torsion_threshold", 40.0)
 
-    # Load functional group SMARTS CSV files if provided.
-    # These are dataset-agnostic (element taxonomy) so loaded once here.
-    fg_df = None
-    fg_files_raw = config.get("functional_groups_files", [])
-    if isinstance(fg_files_raw, str):
-        fg_files_raw = [fg_files_raw]
-    if fg_files_raw:
-        import pandas as pd
-        _dfs = []
-        for _fg_raw in fg_files_raw:
-            _fg_path = resolve_path(_fg_raw, config_path)
-            _df = pd.read_csv(str(_fg_path), delimiter=",")
-            # Strip trailing whitespace from all string columns
-            for _col in _df.select_dtypes(include="object").columns:
-                _df[_col] = _df[_col].str.rstrip().fillna("")
-            _dfs.append(_df)
-        if _dfs:
-            fg_df = pd.concat(_dfs, ignore_index=True)
-            logger.info("  Loaded %d functional group SMARTS entries", len(fg_df))
+    # Load functional group SMARTS.  The built-in CSV is always used; an
+    # optional "functional_groups_files" config key can supply extra CSVs
+    # whose entries are appended (SMARTS-deduplicated at load time).
+    _extra_fg_files: list[str] = config.get("functional_groups_files", [])
+    if isinstance(_extra_fg_files, str):
+        _extra_fg_files = [_extra_fg_files]
+
+    fg_records = load_functional_groups()   # built-in 165-entry table
+    for _fg_raw in _extra_fg_files:
+        _fg_path = resolve_path(_fg_raw, config_path)
+        fg_records += load_functional_groups(_fg_path)
+    # Re-deduplicate across built-in + any extras (keep first occurrence)
+    _seen_smarts: set[str] = set()
+    _deduped = []
+    for _r in fg_records:
+        if _r.smarts not in _seen_smarts:
+            _seen_smarts.add(_r.smarts)
+            _deduped.append(_r)
+    fg_records = _deduped
+    logger.info("Functional groups loaded: %d SMARTS patterns", len(fg_records))
+
+    # Also keep fg_df for the fg_report (_build_groups still expects it).
+    fg_df = pd.DataFrame([{"Functional Group": r.name, "SMARTS": r.smarts} for r in fg_records])
 
     # --- 2. Process each dataset independently ---
     all_qm_results: list = []   # accumulate across datasets for combined report
@@ -688,6 +696,23 @@ def main(config_path: str | Path) -> None:
                     records[mol_idx].smiles,
                 )
 
+        # Functional group matching (with disk cache) for the mol report.
+        fg_cache_path = output_dir / "fg_match_cache.pkl"
+        fg_matches_per_mol: list = []
+        for rec in records:
+            try:
+                rdmol = rec.molecule.to_rdkit()
+                cache_key = rec.inchi_key or rec.smiles
+                matches = match_and_cache(cache_key, rdmol, fg_records, fg_cache_path)
+            except Exception:
+                matches = []
+            fg_matches_per_mol.append(matches)
+        logger.info(
+            "  FG matching done (%d/%d molecules matched at least one group)",
+            sum(1 for m in fg_matches_per_mol if m),
+            len(records),
+        )
+
         # Write per-molecule PDF report (sequential -- matplotlib is not
         # process-safe for shared PdfPages)
         pdf_path = output_dir / "benchmark_report.pdf"
@@ -697,6 +722,7 @@ def main(config_path: str | Path) -> None:
             records=records,
             qm_results=qm_comparison_results,
             potential_names=potential_names,
+            fg_matches_per_mol=fg_matches_per_mol,
         )
         logger.info("  PDF report: %s", pdf_path)
 

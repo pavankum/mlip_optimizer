@@ -1,0 +1,166 @@
+Index,Element,Functional Group,SMARTS,Hybridization,Geometry
+1,Sulfur,Dialkylthioether,[#6X4:1]-[#16X2:2]-[#6X4:3],sp3,Bent
+2,Sulfur,Alkylarylthioether,[#6a:1]-[#16X2:2]-[#6X4:3],sp3,Bent
+3,Sulfur,Diarylthioether,[#6a:1]-[#16X2:2]-[#6a:3],sp3,Bent
+4,Sulfur,Alkylthiol,[#16X2H1:1]-[#6X4:2],sp3,Bent
+5,Sulfur,Arylthiol,[#16X2H1:1]-[#6a:2],sp3,Bent
+6,Sulfur,Disulfide,[#16X2:1]-[#16X2:2],sp3,Bent
+7,Sulfur,Thioaldehyde,[#6X3H1:1]=[#16X1:2],sp2,Trigonal Planar (at C)
+8,Sulfur,Thioketone,[#6X3:1](=[#16X1:2])-[#6X3:3],sp2,Trigonal Planar (at C)
+9,Sulfur,Thioacetal,[#16X2:1]-[#6X4:2]-[#16X2:3],sp3,Bent (at S)
+10,Sulfur,Thiohemiacetal,[#16X2:1]-[#6X4:2]-[#8X2H1:3],sp3,Bent (at S)
+11,Sulfur,Halogen Acetal-like,"[#16X2:1]-[#6X4:2]-[#9,#17,#35,#53:3]",sp3,Bent (at S)
+12,Sulfur,Acetal-like,"[#16X2:1]-[#6X4:2]-[#8X2,#16X2:3]",sp3,Bent (at S)
+13,Sulfur,Thioenol,[#16X2H1:1]-[#6X3:2]=[#6X3:3],sp3 (S) / sp2 (C),Bent (at S)
+14,Sulfur,Thioenolether,[#16X2:1]-[#6X3:2]=[#6X3:3],sp3 (S) / sp2 (C),Bent (at S)
+15,Sulfur,Carbothioic S-acid,"[#6X3:1](=[#8X1:2])-[#16X2H1,#16X1-1:3]",sp2,Trigonal Planar
+16,Sulfur,Carbothioic O-acid,[#6X3:1](=[#16X1:2])-[#8X2H1:3],sp2,Trigonal Planar
+17,Sulfur,Carbothioic S ester,[#6X3:1](=[#8X1:2])-[#16X2:3]-[#6X4:4],sp2,Trigonal Planar
+18,Sulfur,Carbothioic O ester,[#6X3:1](=[#16X1:2])-[#8X2:3]-[#6X4:4],sp2,Trigonal Planar
+19,Sulfur,Carbothioic O lactone,[#6:1]-[#6X3:2](=[#16X1:3])-[#8X2:4]-[#6:5],sp2,Trigonal Planar
+20,Sulfur,Carbothioic halide,"[#6X3:1](=[#16X1:2])-[#9,#17,#35,#53:3]",sp2,Trigonal Planar
+21,Sulfur,Carbodithioic acid,[#6X3:1](=[#16X1:2])-[#16X2H1:3],sp2,Trigonal Planar
+22,Sulfur,Carbodithioic ester,[#6X3:1](=[#16X1:2])-[#16X2:3]-[#6X4:4],sp2,Trigonal Planar
+23,Sulfur,Carbodithiolactone,[#6:1]-[#6X3:2](=[#16X1:3])-[#16X2:4]-[#6:5],sp2,Trigonal Planar
+24,Sulfur,Thioamide,[#6X3:1](=[#16X1:2])-[#7X3:3],sp2,Trigonal Planar
+25,Sulfur,Thiolactam,[#6:1]-[#6X3r:2](=[#16X1:3])-[#7X3r:4],sp2,Trigonal Planar
+26,Sulfur,Imidothioacid,[#6X3:1](=[#7X2:2])-[#16X2H1:3],sp2,Trigonal Planar
+27,Sulfur,Imidothioacid cyclic,"[#6:1]-[#6X3:2](=[#7X2:3])-[#16X2H1,#16X1-1:4]",sp2,Trigonal Planar
+28,Sulfur,Imidothioester,[#6X3:1](=[#7X2:2])-[#16X2:3]-[#6X4:4],sp2,Trigonal Planar
+29,Sulfur,Imidothiolactone,[#6:1]-[#6X3:2](=[#7X2:3])-[#16X2:4]-[#6X4:5],sp2,Trigonal Planar
+30,Sulfur,Thiocarbonic acid diester,[#6X4:1]-[#8X2:2]-[#6X3:3](=[#16X1:4])-[#8X2:5]-[#6X4:6],sp2,Trigonal Planar
+31,Sulfur,Thiocarbonic acid halide,"[#6X4:1]-[#8X2:2]-[#6X3:3](=[#16X1:4])-[#8X2:5]-[#9,#17,#35,#53:6]",sp2,Trigonal Planar
+32,Sulfur,Thiourea,[#7X3:1]-[#6X3:2](=[#16X1:3])-[#7X3:4],sp2,Trigonal Planar
+33,Sulfur,Isothiourea,[#7X2:1]=[#6X3:2]([#16X2:3])-[#7X3:4],sp2,Trigonal Planar
+34,Sulfur,Thiosemicarbazide,[#7X3:1]-[#7X3:2]-[#6X3:3]([#7X3:4])=[#16X1:5],sp2,Trigonal Planar
+35,Sulfur,Thiocarbazide,[#7X3:1]-[#7X3:2]-[#6X3:3](=[#16X1:4])-[#7X3:5]-[#7X3:6],sp2,Trigonal Planar
+36,Sulfur,Thiosemicarbazone,[#7X2:1](=[#6X3:2])-[#7X3:3]-[#6X3:4]([#7X3:5])=[#16X1:6],sp2,Trigonal Planar
+37,Sulfur,Thiocarbazone,[#7X2:1]=[#7X2:2]-[#6X3:3](=[#16X1:4])-[#7X3:5]-[#7X3:6],sp2,Trigonal Planar
+38,Sulfur,Isothiocyanate,[#7X2:1]=[#6X2:2]=[#16X1:3],sp,Linear
+39,Sulfur,Thiocyanate,[#16X2:1]-[#6X2:2]#[#7X1:3],sp3 (S) / sp (C),Bent (at S)
+40,Sulfur,Thionitrite,[#16X2:1]-[#7X2:2]=[#8X1:3],sp3 (S) / sp2 (N),Bent
+41,Sulfur,Sulfenic acid,[#16X2:1]-[#8X2H1:2],sp3,Bent
+42,Sulfur,Sulfinic acid,"[#16X3:1](=[#8X1:2])-[#8X2H1,#8X1-1:3]",sp3,Trigonal Pyramidal
+43,Sulfur,Sulfonic acid,"[#16X4:1](=[#8X1:2])(=[#8X1:3])-[#8X2H1,#8X1-1:4]",sp3,Tetrahedral
+44,Sulfur,Sulfenamide,[#6:1]-[#16X2:2]-[#7X3:3],sp3,Bent (at S)
+45,Sulfur,Sulfinamide,[#6:1]-[#16X3:2](=[#8X1:3])-[#7X3:4],sp3,Trigonal Pyramidal
+46,Sulfur,Sulfonamide,[#16X4:1](=[#8X1:2])(=[#8X1:3])-[#7X3:4],sp3,Tetrahedral
+47,Sulfur,Sulfuric monoester,"[#16X4:1](=[#8X1:2])(=[#8X1:3])([#8X2H1,#8X1-1:4])-[#8X2:5]",sp3,Tetrahedral
+48,Sulfur,Sulfuric diester,[#16X4:1](=[#8X1:2])(=[#8X1:3])([#8:4])([#8:5]),sp3,Tetrahedral
+49,Sulfur,Sulfuric monoamide,"[#16X4:1](=[#8X1:2])(=[#8X1:3])([#7X3:4])([#8X2H1,#8X1-1:5])",sp3,Tetrahedral
+50,Sulfur,Sulfuric diamide,[#16X4:1](=[#8X1:2])(=[#8X1:3])([#7X3:4])([#7X3:5]),sp3,Tetrahedral
+51,Sulfur,Sulfuric esteramide,[#16X4:1](=[#8X1:2])(=[#8X1:3])([#7X3:4]-[#6X4:5])([#8X2:6]-[#6X4:7]),sp3,Tetrahedral
+52,Sulfur,Sulfonimidamide,[#16X4:1](=[#8X1:2])(=[#7X2:3])-[#7X3:4]-[#7X3:5],sp3,Tetrahedral
+53,Sulfur,Sulfoximine,[#16X4:1](=[#8X1:2])(=[#7X2:3])-[#7X3:4],sp3,Tetrahedral
+54,Sulfur,Sulfamic Acid Amide,"[#7X3:1]-[#16X4:2](=[#8X1:3])(=[#8X1:4])-[#8X2H1,#8X1-1:5]",sp3,Tetrahedral
+55,Sulfur,Sulfamide,[#7X3:1]-[#16X4:2](=[#8X1:3])(=[#8X1:4])-[#7X3:5],sp3,Tetrahedral
+56,Sulfur,Persulfide,[#16X2:1]-[#16X2H1:2],sp3,Bent
+57,Sulfur,Sulfonium,[#16X3+:1](-[#6:2])(-[#6:3])-[#6:4],sp3,Trigonal Pyramidal
+58,Sulfur,Disulfide monoxide,[#16X3:1](=[#8X1:2])-[#16X2:3]-[#6X4:4],sp3,Mixed (Pyramidal/Bent)
+59,Sulfur,Acyl disulfide,[#6X3:1](=[#8X1:2])-[#16X2:3]-[#16X2:4]-[#6X4:5],sp3,Bent (at both S)
+60,Sulfur,Sulfinyl sulfenyl,[#16X3:1](=[#8X1:2])-[#16X2:3],sp3,Mixed (Pyramidal/Bent)
+61,Sulfur,Sulfoxide,[#16X3:1](=[#8X1:2])-[#6X4:3],sp3,Trigonal Pyramidal
+62,Sulfur,Sulfone,[#16X4:1](=[#8X1:2])(=[#8X1:3])-[#6X4:4],sp3,Tetrahedral
+63,Sulfur,Sugar pattern 2,[#8X2:1]1[#6:2][#6:3][#6:4][#16X2:5]1,sp3,Bent (at S)
+64,Sulfur,Sugar pattern combi,[#8X2:1]1[#6:2][#6:3]([#8X2:4])[#6:5][#16X2:6]1,sp3,Bent (at S)
+65,Sulfur,"1,3-Tautomerizable","[$([#16X1:1]=[#6:2]-[!H0:3]),$([#16X2:4]-[#6:5]=[#6:6])]",Mixed,Varies
+66,Phosphorus,Primary Phosphine,[#15X3H2:1],sp3,Trigonal Pyramidal
+67,Phosphorus,Secondary Phosphine,[#15X3H1:1]-[#6X4:2],sp3,Trigonal Pyramidal
+68,Phosphorus,Tertiary Phosphine,[#15X3:1](-[#6X4:2])(-[#6X4:3])-[#6X4:4],sp3,Trigonal Pyramidal
+69,Phosphorus,Phosphonium Ion,[#15X4+:1],sp3,Tetrahedral
+70,Phosphorus,Phosphine Oxide,[#15X4:1](=[#8X1:2])(-[#6X4:3])(-[#6X4:4])-[#6X4:5],sp3,Tetrahedral
+71,Phosphorus,Phosphine Sulfide,[#15X4:1](=[#16X1:2])(-[#6X4:3])(-[#6X4:4])-[#6X4:5],sp3,Tetrahedral
+72,Phosphorus,Phosphinite,[#15X3:1](-[#6X4:2])(-[#6X4:3])-[#8X2:4]-[#6X4:5],sp3,Trigonal Pyramidal
+73,Phosphorus,Phosphonite,[#15X3:1](-[#8X2:2])(-[#8X2:3])-[#6X4:4],sp3,Trigonal Pyramidal
+74,Phosphorus,Phosphite Monoester,[#15X3:1](-[#8X2:2]-[#6X4:3])([#1:4])[#1:5],sp3,Trigonal Pyramidal
+75,Phosphorus,Phosphite Diester,[#15X3:1](-[#8X2:2]-[#6X4:3])(-[#8X2:4]-[#6X4:5])[#1:6],sp3,Trigonal Pyramidal
+76,Phosphorus,Phosphite Triester,[#15X3:1](-[#8X2:2]-[#6X4:3])(-[#8X2:4]-[#6X4:5])-[#8X2:6]-[#6X4:7],sp3,Trigonal Pyramidal
+77,Phosphorus,Phosphoric Monoester,[#15X4:1](=[#8X1:2])([#8X2:3])([#8X2:4])-[#8X2:5]-[#6X4:6],sp3,Tetrahedral
+78,Phosphorus,Phosphoric Diester,[#15X4:1](=[#8X1:2])([#8X2:3]-[#6X4:4])([#8X2:5]-[#6X4:6])-[#8X2:7],sp3,Tetrahedral
+79,Phosphorus,Phosphoric Triester,[#15X4:1](=[#8X1:2])([#8X2:3]-[#6X4:4])([#8X2:5]-[#6X4:6])-[#8X2:7]-[#6X4:8],sp3,Tetrahedral
+80,Phosphorus,Phosphoric Amide,[#15X4:1](=[#8X1:2])([#8X2:3])([#8X2:4])-[#7X3:4],sp3,Tetrahedral
+81,Phosphorus,Phosphoric Diamide,[#15X4:1](=[#8X1:2])([#8X2:5])([#7X3:3])([#7X3:4]),sp3,Tetrahedral
+82,Phosphorus,Phosphoramide Monoester,[#15X4:1](=[#8X1:2])([#7X3:3])([#8X2:6])-[#8X2:4]-[#6X4:5],sp3,Tetrahedral
+83,Phosphorus,Phosphoramide Diester,[#15X4:1](=[#8X1:2])([#8X2:3]-[#6X4:4])([#8X2:5]-[#6X4:6])-[#7X3:7],sp3,Tetrahedral
+84,Phosphorus,Phosphoramide Triamide,[#15X4:1](=[#8X1:2])([#7X3:3])([#7X3:4])([#7X3:5]),sp3,Tetrahedral
+85,Phosphorus,Phosphonic Monoester,[#15X4:1](=[#8X1:2])([#8X2:3])([#6X4:6])-[#8X2:4]-[#6X4:5],sp3,Tetrahedral
+86,Phosphorus,Phosphonic Diester,[#15X4:1](=[#8X1:2])([#8X2:3]-[#6X4:4])([#6X4:7])-[#8X2:5]-[#6X4:6],sp3,Tetrahedral
+87,Phosphorus,Phosphoramide,[#15X4:1](=[#8X1:2])([#8X2:3])([#6X4:5])-[#7X3:4],sp3,Tetrahedral
+88,Phosphorus,Phosphonamidate,[#15X4:1](=[#8X1:2])([#6X4:6])-[#7X3:3]-[#8X2:4]-[#6X4:5],sp3,Tetrahedral
+89,Phosphorus,Phosphinic Ester,[#15X4:1](=[#8X1:4])(-[#6X4:5])(-[#6X4:6])-[#8X2:2]-[#6X4:3],sp3,Tetrahedral
+90,Phosphorus,Phosphinic Amide,[#15X4:1](=[#8X1:3])(-[#6X4:4])(-[#6X4:5])-[#7X3:2],sp3,Tetrahedral
+91,Phosphorus,Phosphonothioate Ester,[#15X4:1](=[#16X1:2])([#6X4:7])([#8X2:3]-[#6X4:4])-[#8X2:5]-[#6X4:6],sp3,Tetrahedral
+92,Phosphorus,Phosphonamidothioate,[#15X4:1](=[#16X1:2])([#6X4:6])([#7X3:3])-[#8X2:4]-[#6X4:5],sp3,Tetrahedral
+93,Phosphorus,Phosphorothioate,[#15X4:1](=[#16X1:2])([#8X2:3]-[#6X4:4])([#8X2:5]-[#6X4:6])-[#8X2:7],sp3,Tetrahedral
+94,Phosphorus,Phosphorothioamide,[#15X4:1](=[#16X1:2])([#8X2:5])([#8X2:3])-[#7X3:4],sp3,Tetrahedral
+95,Phosphorus,Phosphorochloridate,[#15X4:1](=[#8X1:2])([#8X2:3]-[#6X4:4])([#8X2:6])-[#17:5],sp3,Tetrahedral
+96,Phosphorus,Phosphorodichloridate,[#15X4:1](=[#8X1:2])([#8X2:5])([#17:3])-[#17:4],sp3,Tetrahedral
+97,Phosphorus,Diphosphate Linkage,[#15X4:1](=[#8X1:2])([#8X2:6])-[#8X2:3]-[#15X4:4](=[#8X1:5])([#8X2:7]),sp3,Tetrahedral
+98,Phosphorus,Cyclic Phosphate,[#15X4:1]1(=[#8X1:2])([#8X2:6])-[#8X2:3]-[#6X4:4]-[#8X2:5]-1,sp3,Tetrahedral
+99,Phosphorus,Triphosphate,[#15X4:1](=[#8X1:2])-[#8X2:3]-[#15X4:4](=[#8X1:5])-[#8X2:6]-[#15X4:7](=[#8X1:8]),sp3,Tetrahedral
+100,Phosphorus,Phosphazene,[#15X4:1](-[#6X4])(-[#6X4])=[#7X2:2]-[#15X4:3],sp3,Tetrahedral
+101,Phosphorus,Aryl Phosphine,[#15X3:1](-[#1:3])([#1:4])-[#6a:2],sp3,Trigonal Pyramidal
+102,Phosphorus,Aryl Phosphonate,[#15X4:1](=[#8X1:2])([#8X2:3]-[#6a:4])([#6X4:7])-[#8X2:5]-[#6a:6],sp3,Tetrahedral
+103,Phosphorus,Phosphorodiamidate,[#15X4:1](=[#8X1:2])([#8X2:5])-[#7X3:3]-[#7X3:4],sp3,Tetrahedral
+104,Phosphorus,Methylphosphonic Acid,[#15X4:1](=[#8X1:2])([#8X2:3])([#8X2:5])-[#6X4H3:4],sp3,Tetrahedral
+105,Phosphorus,Phosphoramidite,[#15X3:1](-[#7X3:2])(-[#8X2:3]-[#6X4:4])-[#8X2:5]-[#6X4:6],sp3,Trigonal Pyramidal
+106,Phosphorus,Phosphoramidothioate,[#15X4:1](=[#16X1:2])([#8X2:3]-[#6X4:4])([#8X2:6])-[#7X3:5],sp3,Tetrahedral
+107,Phosphorus,Mixed O/S Phosphate,[#15X4:1](=[#8X1:2])([#8X2:3]-[#6X4:4])([#8X2:7])-[#16X2:5]-[#6X4:6],sp3,Tetrahedral
+108,Phosphorus,Phosphoric Anhydride,[#8:8]-[#15X4:2](=[#8X1:3])(-[#8:9])-[#8X2:4]-[#15X4:5](=[#8X1:6])(-[#8:10])-[#8:7],sp3,Tetrahedral
+109,Nitrogen,Primary Amine,[#7X3H2:1],sp3,Trigonal Pyramidal
+110,Nitrogen,Secondary Amine,[#7X3H1:1],sp3,Trigonal Pyramidal
+111,Nitrogen,Tertiary Amine,[#7X3H0:1],sp3,Trigonal Pyramidal
+112,Nitrogen,Quaternary Ammonium,[#7X4+:1],sp3,Tetrahedral
+113,Nitrogen,Hydroxylamine,[#7X3:1]-[#8X2H1:2],sp3,Trigonal Pyramidal
+114,Nitrogen,Amide,[#7X3:1]-[#6X3:2](=[#8X1:3]),sp2,Planar
+115,Nitrogen,β-Lactam,[#7X3:1]1-[#6X3:2](=[#8X1:3])-[#6:4]-[#6:5]1,sp2,Planar
+116,Nitrogen,γ-Lactam,[#7X3:1]1-[#6X3:2](=[#8X1:3])-[#6:4]-[#6:5]-[#6:6]1,sp2,Planar
+117,Nitrogen,Urea,[#7X3:1]-[#6X3:2](=[#8X1:3])-[#7X3:4],sp2,Planar
+118,Nitrogen,Carbamate,[#6X3:1](=[#8X1:2])([#8X2:3])-[#7X3:4],sp2,Planar
+119,Nitrogen,Cyclic Urea,[#7X3r:1]-[#6X3r:2](=[#8X1:3])-[#7X3r:4],sp2,Planar
+120,Nitrogen,Imine,[#7X2:1]=[#6X3:2],sp2,Planar
+121,Nitrogen,Enamine,[#6X3!r:1]=[#6X3!r:2]-[#7X3!r:3],sp2,Planar
+122,Nitrogen,Oxime,[#6:1]=[#7X2:2]-[#8X2H1:3],sp2,Planar
+123,Nitrogen,Amidoxime,[#6X3:1](=[#7X2H1:2])-[#8X2H1:3],sp2,Planar
+124,Nitrogen,Amidine,[#7X3:1]=[#6X3:2]-[#7X2:3],sp2,Planar
+125,Nitrogen,Cyclic Amidine,[#7X3:1]1-[#6X3:2]=[#7X2:3]-[#6:4]1,sp2,Planar
+126,Nitrogen,Hydrazine,[#7X3:1]-[#7X3:2],sp3,Trigonal Pyramidal
+127,Nitrogen,Hydrazide,[#6X3:1](=[#8X1:2])-[#7X3:3]-[#7X3:4],sp2,Planar
+128,Nitrogen,Semicarbazide,[#7X3:1]-[#7X3H1:2]-[#6X3:3](=[#8X1:4])-[#7X3:5],sp2,Planar
+129,Nitrogen,Carbazide,[#7X3:1]-[#7X3:2]-[#6X3:3](=[#8X1:4])-[#7X3:5]-[#7X3:6],sp2,Planar
+130,Nitrogen,Semicarbazone,[#7X2:1](=[#6X3:2])-[#7X3:3]-[#6X3:4](=[#8X1:5])-[#7X3:6],sp2,Planar
+131,Nitrogen,Carbazone,[#7X2:1]=[#7X2:2]-[#6X3:3](=[#8X1:4])-[#7X3:5]-[#7X3:6],sp2,Planar
+132,Nitrogen,Thiosemicarbazide,[#7X3:1]-[#7X3H1:2]-[#6X3:3](=[#16X1:4])-[#7X3:5],sp2,Planar
+133,Nitrogen,Thiosemicarbazone,[#7X2:1](=[#6X3:2])-[#7X3:3]-[#6X3:4](=[#16X1:5])-[#7X3:6],sp2,Planar
+134,Nitrogen,Nitro Group,[#7X3:1](=[#8X1:2])-[#8X1:3],sp2,Planar
+135,Nitrogen,Nitroso Group,[#7X2:1]=[#8X1:2],sp2,Bent
+136,Nitrogen,Nitrosamine,[#7X3:1]-[#7X2:2]=[#8X1:3],sp2,Planar
+137,Nitrogen,Azo Group,[#7X2!r:1]=[#7X2!r:2],sp2,Bent
+138,Nitrogen,Triazene,[#7X3!r:1]-[#7X2!r:2]=[#7X2!r:3],sp2,Planar
+139,Nitrogen,Azide,[#7X2:1]=[#7X2:2]=[#7X1:3],sp,Linear
+140,Nitrogen,Nitrile,[#6X2:1]#[#7X1:2],sp,Linear
+141,Nitrogen,Isonitrile,[#7X2:1]#[#6X1:2],sp,Linear
+142,Nitrogen,Cyanamide,[#7X3:1]-[#6:2]#[#7X1:3],sp/sp2,Linear/Planar Mixed
+143,Nitrogen,Carbodiimide,[#7X2:2]=[#6X2:1]=[#7X2:3],sp,Linear
+144,Nitrogen,Guanidine,[#7X3!r:1]-[#6X3!r:2](=[#7X2:3])-[#7X3!r:4],sp2,Planar
+145,Nitrogen,Biguanide,[#7X3!r:1]-[#6X3!r:2](=[#7X2:3])-[#7X2!r:4]=[#6X3!r:5](-[#7X3!r:6])-[#7X3!r:7],sp2,Planar
+146,Nitrogen,Pyridine,[#7a:1]1:[#6a:2]:[#6a:3]:[#6a:4]:[#6a:5]:[#6a:6]:1,sp2,Planar Aromatic
+147,Nitrogen,Pyrrole,[#7aH1:1]1:[#6a:2]:[#6a:3]:[#6a:4]:[#6a:5]:1,sp2,Planar Aromatic
+148,Nitrogen,Indole,[#7aH1:1]1:[#6a:2]:[#6a:3]:[#6a:4]2:[#6a:5]1:[#6a:6]:[#6a:7]:[#6a:8]:2,sp2,Planar Aromatic
+149,Nitrogen,Triazine,[#7a:1]1:[#6a:2]:[#7a:3]:[#6a:4]:[#7a:5]:[#6a:6]:1,sp2,Planar Aromatic
+150,Nitrogen,Aziridine,[#7X3:1]1-[#6:2]-[#6:3]1,sp3,Bent-Pyramidal (Strained)
+151,Nitrogen,Azetidine,[#7X3:1]1-[#6:2]-[#6:3]-[#6:4]1,sp3,Bent-Pyramidal (Strained)
+152,Nitrogen,Aminal,[#7X3!r:1]-[#6X4!r:2]-[#7X3!r:3],sp3,Trigonal Pyramidal
+153,Nitrogen,Peroxynitrite,[#8X2:1]-[#8X2:2]-[#7X2:3]=[#8X1:4],sp2,Bent
+154,Nitrogen,Nitrene,[#7X1:1],sp,Linear
+155,Nitrogen,Imidazole,[#6X3:1]1:[#6X3:2]:[#7X2:3]:[#6X3:4]:[#7X3:5]:1,sp2,Planar Aromatic
+156,Nitrogen,Pyrimidine,[#7X2:1]1:[#6X3:2]:[#7X2:3]:[#6X3:4]:[#6X3:5]:[#6X3:6]:1,sp2,Planar Aromatic
+157,Nitrogen,Purine,[#7X2:1]1:[#6X3:2]:[#7X2:3]:[#6X3:4]2:[#7X3:5]:[#6X3:6]:[#7X2:7]:[#6X3:8]:[#6X3:9]:2:1,sp2,Planar Aromatic
+158,Nitrogen,Sulfamic Acid Amide,[#7X3:1]-[#16X4:2](=[#8X1:3])(=[#8X1:4])-[#7X3H2:5],sp3,Trigonal Pyramidal (at N)
+159,Nitrogen,Sulfoximine,[#16X4:1](=[#8X1:2])(=[#7X2H1:3]),sp3,Trigonal Pyramidal (at N)
+160,Nitrogen,Imidazoline,[#6X3:1]1-[#7X3:2]-[#6X3:3]=[#7X2:4]-[#6:5]1,sp2,Planar
+161,Nitrogen,Tetrazole,[#7X3:1]1-[#7X2:2]=[#7X2:3]-[#6X3:4]=[#7X2:5]1,sp2,Planar Aromatic
+162,Nitrogen,Nitrosourea,[#7X3:1]-[#6X3:2](=[#8X1:3])-[#7X2:4]=[#8X1:5],sp2,Planar
+163,Nitrogen,Cyanoguanidine,[#7X3:1]-[#6X3:2](=[#7X2:3]-[#6X2:4]#[#7X1:5])-[#7X3:6],sp2,Planar
+164,Nitrogen,Isourea,[#7X3!r:1]-[#6X3!r:2](=[#7X2:3])-[#8X2!r:4],sp2,Planar
+165,Nitrogen,Tetrazine,[#7X2:1]1:[#7X2:2]:[#6X3:3]:[#7X2:4]:[#7X2:5]:[#6X3:6]:1,sp2,Planar Aromatic

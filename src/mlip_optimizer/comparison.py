@@ -418,6 +418,100 @@ class QMComparisonResult:
     bond_ref_values: dict[tuple, list[float]] = field(default_factory=dict)
     angle_ref_values: dict[tuple, list[float]] = field(default_factory=dict)
     torsion_ref_values: dict[tuple, list[float]] = field(default_factory=dict)
+    ring_planarity_table: list[list] = field(default_factory=list)
+
+
+def _plane_rmsd(coords: np.ndarray) -> float:
+    """Return the best-fit plane RMSD (Å) for a set of 3-D points.
+
+    Uses SVD: the normal to the optimal plane is the right singular vector
+    corresponding to the smallest singular value.  Returns 0.0 for fewer
+    than 3 points (always planar).
+    """
+    if len(coords) < 3:
+        return 0.0
+    centred = coords - coords.mean(axis=0)
+    _, _, vt = np.linalg.svd(centred, full_matrices=False)
+    normal = vt[-1]
+    distances = centred @ normal
+    return float(np.sqrt(np.mean(distances ** 2)))
+
+
+def _build_ring_planarity_table(
+    qm_molecule: Molecule,
+    optimized_molecules: dict[str, Molecule | None],
+    potential_names: list[str],
+) -> list[list]:
+    """Build a ring-planarity table comparing QM vs each potential.
+
+    Each row: [ring_label, n_atoms, qm_dev_str, pot1_dev_str, pot2_dev_str, ...]
+
+    Planarity deviation is the RMSD of ring-atom positions from their
+    best-fit plane (Å), averaged across conformers (reported as mean±std).
+    Smaller values mean flatter rings.
+
+    Returns an empty list when the molecule has no rings or no conformers.
+    """
+    from openff.units import unit as off_unit
+
+    try:
+        rdmol = qm_molecule.to_rdkit()
+        from rdkit.Chem import GetSSSR
+        ring_info = rdmol.GetRingInfo()
+        atom_rings = ring_info.AtomRings()
+    except Exception:
+        return []
+
+    if not atom_rings:
+        return []
+
+    n_conf = len(qm_molecule.conformers)
+    if n_conf == 0:
+        return []
+
+    rows: list[list] = []
+    for ring_atoms in atom_rings:
+        ring_atoms = tuple(sorted(ring_atoms))
+        label = "-".join(str(i) for i in ring_atoms)
+        n = len(ring_atoms)
+
+        # QM deviations across conformers
+        qm_devs: list[float] = []
+        for ci in range(n_conf):
+            coords = qm_molecule.conformers[ci].m_as(off_unit.angstrom)
+            ring_coords = coords[list(ring_atoms)]
+            qm_devs.append(_plane_rmsd(ring_coords))
+
+        qm_mean = float(np.mean(qm_devs))
+        qm_std = float(np.std(qm_devs))
+        qm_str = f"{qm_mean:.4f}±{qm_std:.4f}" if n_conf > 1 else f"{qm_mean:.4f}"
+
+        row: list = [label, n, qm_str]
+
+        for pot in potential_names:
+            opt_mol = optimized_molecules.get(pot)
+            if opt_mol is None:
+                row.append("FAILED")
+                continue
+            try:
+                pot_devs: list[float] = []
+                for ci in range(min(n_conf, len(opt_mol.conformers))):
+                    coords = opt_mol.conformers[ci].m_as(off_unit.angstrom)
+                    ring_coords = coords[list(ring_atoms)]
+                    pot_devs.append(_plane_rmsd(ring_coords))
+                if not pot_devs:
+                    row.append("—")
+                    continue
+                pot_mean = float(np.mean(pot_devs))
+                pot_std = float(np.std(pot_devs))
+                pot_str = f"{pot_mean:.4f}±{pot_std:.4f}" if len(pot_devs) > 1 else f"{pot_mean:.4f}"
+                row.append(pot_str)
+            except Exception:
+                row.append("—")
+
+        rows.append(row)
+
+    return rows
 
 
 def evaluate_against_qm(
@@ -584,6 +678,10 @@ def evaluate_against_qm(
             angle_table = _annotate_table_with_ff_params(angle_table, ff_lookup)
             torsion_table = _annotate_table_with_ff_params(torsion_table, ff_lookup)
 
+    ring_planarity_table = _build_ring_planarity_table(
+        qm_molecule, optimized_molecules, potential_names
+    )
+
     return QMComparisonResult(
         inchi_key=inchi_key,
         smiles=smiles,
@@ -597,6 +695,7 @@ def evaluate_against_qm(
         bond_ref_values=bond_ref_accum,
         angle_ref_values=angle_ref_accum,
         torsion_ref_values=torsion_ref_accum,
+        ring_planarity_table=ring_planarity_table,
     )
 
 

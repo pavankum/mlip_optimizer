@@ -46,6 +46,33 @@ def compile_patterns(raw_patterns) -> list[dict]:
     return patterns
 
 
+def _normalize_with_labels(raw_patterns, label_prefix: str) -> list[tuple[str, str]]:
+    """Coerce *raw_patterns* into ``(smarts, label)`` pairs.
+
+    Each item may be a plain SMARTS string (label auto-generated as
+    ``'<prefix> Pattern N'``) or a two-element ``(smarts, label)`` tuple /
+    list with an explicit label.  A raw string input is split on commas or
+    newlines as in :func:`normalize_patterns`.
+    """
+    if isinstance(raw_patterns, str):
+        items: list = [p.strip() for p in raw_patterns.replace('\n', ',').split(',') if p.strip()]
+    else:
+        items = list(raw_patterns)
+
+    result: list[tuple[str, str]] = []
+    auto_idx = 1
+    for item in items:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            smarts, label = str(item[0]).strip(), str(item[1]).strip()
+        else:
+            smarts = str(item).strip()
+            label = f'{label_prefix} Pattern {auto_idx}'
+        if smarts:
+            result.append((smarts, label))
+            auto_idx += 1
+    return result
+
+
 def compile_indexed_patterns(
     raw_patterns,
     required_mapped_atoms: int,
@@ -60,11 +87,13 @@ def compile_indexed_patterns(
     Parameters
     ----------
     raw_patterns : str or list
-        Raw SMARTS strings.
+        Raw SMARTS strings, or a list of ``(smarts, label)`` tuples for
+        explicit per-pattern labels.
     required_mapped_atoms : int
         Number of mapped atoms required (``2`` for bond, ``3`` for angle).
     label_prefix : str
-        Prefix used in generated labels, e.g. ``'Bond'`` or ``'Angle'``.
+        Prefix used in auto-generated labels when no explicit label is
+        supplied, e.g. ``'Bond'`` or ``'Angle'``.
 
     Returns
     -------
@@ -75,7 +104,7 @@ def compile_indexed_patterns(
     patterns = []
     required = set(range(1, required_mapped_atoms + 1))
 
-    for idx, smarts in enumerate(normalize_patterns(raw_patterns), start=1):
+    for smarts, label in _normalize_with_labels(raw_patterns, label_prefix):
         query = Chem.MolFromSmarts(smarts)
         if query is None:
             raise ValueError(f'Invalid SMARTS pattern: {smarts}')
@@ -99,7 +128,7 @@ def compile_indexed_patterns(
             )
 
         patterns.append({
-            'label': f'{label_prefix} Pattern {idx}',
+            'label': label,
             'smarts': smarts,
             'query': query,
             'map_to_query_idx': map_to_query_idx,
@@ -146,6 +175,57 @@ def metric_unit(metric: str) -> str:
     return {'bond': 'Angstrom', 'angle': 'deg'}[metric]
 
 
+def _assign_pattern_keys(
+    rdmol,
+    patterns: list[dict],
+    metric: str,
+    ff_param_ids: set[str] | None,
+    ff_lookup: dict,
+    high_error_keys: set | None,
+    hierarchy: bool,
+) -> tuple[dict[str, set], set]:
+    """Return ``(keys_by_label, union)`` for one molecule.
+
+    Non-hierarchy: each pattern gets all its matched keys; keys can appear
+    in multiple patterns.
+
+    Hierarchy (last-match-wins): patterns are ordered most-general → most-specific.
+    Each atom-key is assigned to the *last* pattern that matches it and removed
+    from all earlier patterns, exactly mirroring SMIRNOFF parameter assignment.
+    """
+    key_in = _bond_key_in if metric == 'bond' else _angle_key_in
+
+    # Pass 1 — collect raw matches for every pattern, applying optional filters
+    all_matches: dict[str, set] = {}
+    for item in patterns:
+        keys = _extract_mapped_keys(rdmol, item, metric)
+        if ff_param_ids is not None:
+            keys = {k for k in keys if _ff_param_id(k, ff_lookup) in ff_param_ids}
+        if high_error_keys is not None:
+            keys = {k for k in keys if key_in(k, high_error_keys)}
+        if keys:
+            all_matches[item['label']] = keys
+
+    if not hierarchy:
+        union: set = set()
+        for keys in all_matches.values():
+            union.update(keys)
+        return all_matches, union
+
+    # Pass 2 (hierarchy) — last-match-wins: strip keys already claimed by later patterns
+    assigned: set = set()
+    keys_by_label: dict[str, set] = {}
+    for item in reversed(patterns):
+        label = item['label']
+        if label not in all_matches:
+            continue
+        exclusive = {k for k in all_matches[label] if not key_in(k, assigned)}
+        if exclusive:
+            keys_by_label[label] = exclusive
+            assigned.update(exclusive)
+    return keys_by_label, assigned
+
+
 def collect_overlay_data(
     bundles: list[dict],
     bond_smarts_patterns,
@@ -156,6 +236,7 @@ def collect_overlay_data(
     ff_bond_param_ids: set[str] | None = None,
     ff_angle_param_ids: set[str] | None = None,
     high_error_only: bool = False,
+    hierarchy: bool = False,
 ) -> tuple[dict, pd.DataFrame]:
     """Collect SMARTS-filtered geometry data from comparison bundles.
 
@@ -192,6 +273,12 @@ def collect_overlay_data(
         shown in the per-parameter pages of the comparison report, where the
         QM reference distribution is built from high-error instances only.
         Default ``False`` (include all matched instances).
+    hierarchy : bool, optional
+        If ``True``, apply last-match-wins SMARTS assignment (like SMIRNOFF):
+        patterns are ordered most-general → most-specific, and each atom-key
+        is assigned to the *last* pattern that matches it.  Earlier (more
+        general) patterns do not double-count keys already claimed by a later
+        (more specific) pattern.  Default ``False`` (independent matching).
 
     Returns
     -------
@@ -260,29 +347,14 @@ def collect_overlay_data(
                     if isinstance(row, (list, tuple)) and row and isinstance(row[0], tuple)
                 }
 
-            bond_keys_by_label: dict[str, set] = {}
-            molecule_bond_union: set = set()
-            for item in bond_patterns:
-                keys = _extract_mapped_keys(rdmol, item, 'bond')
-                if ff_bond_param_ids is not None:
-                    keys = {k for k in keys if _ff_param_id(k, ff_lookup) in ff_bond_param_ids}
-                if high_error_bond_keys is not None:
-                    keys = {k for k in keys if _bond_key_in(k, high_error_bond_keys)}
-                if keys:
-                    bond_keys_by_label[item['label']] = keys
-                    molecule_bond_union.update(keys)
-
-            angle_keys_by_label: dict[str, set] = {}
-            molecule_angle_union: set = set()
-            for item in angle_patterns:
-                keys = _extract_mapped_keys(rdmol, item, 'angle')
-                if ff_angle_param_ids is not None:
-                    keys = {k for k in keys if _ff_param_id(k, ff_lookup) in ff_angle_param_ids}
-                if high_error_angle_keys is not None:
-                    keys = {k for k in keys if _angle_key_in(k, high_error_angle_keys)}
-                if keys:
-                    angle_keys_by_label[item['label']] = keys
-                    molecule_angle_union.update(keys)
+            bond_keys_by_label, molecule_bond_union = _assign_pattern_keys(
+                rdmol, bond_patterns, 'bond',
+                ff_bond_param_ids, ff_lookup, high_error_bond_keys, hierarchy,
+            )
+            angle_keys_by_label, molecule_angle_union = _assign_pattern_keys(
+                rdmol, angle_patterns, 'angle',
+                ff_angle_param_ids, ff_lookup, high_error_angle_keys, hierarchy,
+            )
 
             if molecule_bond_union:
                 for atom_key, values in qm_comp.bond_ref_values.items():
@@ -352,3 +424,41 @@ def collect_overlay_data(
             })
 
     return analysis, pd.DataFrame(summary_rows)
+
+
+def collect_hierarchy_overlay_data(
+    bundles: list[dict],
+    bond_smarts_patterns,
+    angle_smarts_patterns,
+    potential_name: str,
+    metrics: tuple[str, ...] = ('bond', 'angle'),
+    forcefield_name: str | None = None,
+    ff_bond_param_ids: set[str] | None = None,
+    ff_angle_param_ids: set[str] | None = None,
+    high_error_only: bool = False,
+) -> tuple[dict, pd.DataFrame]:
+    """Like :func:`collect_overlay_data` but with SMIRNOFF-style last-match-wins assignment.
+
+    Patterns must be ordered **most-general → most-specific** (same convention
+    as an OpenFF ForceField SMIRKS list).  Each atom-key (bond or angle
+    instance) is assigned to the *last* pattern that matches it; earlier
+    patterns do not count instances that a later pattern already claimed.
+
+    This means the counts in the summary table are mutually exclusive — the
+    total across all patterns equals the number of unique matched instances,
+    with no double-counting.
+
+    All other parameters are identical to :func:`collect_overlay_data`.
+    """
+    return collect_overlay_data(
+        bundles,
+        bond_smarts_patterns,
+        angle_smarts_patterns,
+        potential_name,
+        metrics=metrics,
+        forcefield_name=forcefield_name,
+        ff_bond_param_ids=ff_bond_param_ids,
+        ff_angle_param_ids=ff_angle_param_ids,
+        high_error_only=high_error_only,
+        hierarchy=True,
+    )

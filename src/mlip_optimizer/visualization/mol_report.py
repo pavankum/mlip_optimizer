@@ -295,11 +295,34 @@ def build_header(
     ]
 
 
-def build_caption(smiles: str, qca_ids: list[int]) -> list:
-    """Return flowables for the SMILES + QCA IDs caption line."""
+def build_caption(
+    smiles: str,
+    qca_ids: list[int],
+    fg_text: str | None = None,
+) -> list:
+    """Return flowables for the SMILES + QCA IDs + functional groups caption."""
     ids_str = ", ".join(str(i) for i in qca_ids) if qca_ids else "—"
     text = f"<b>SMILES:</b> {smiles}<br/><b>QCA IDs:</b> {ids_str}"
+    if fg_text:
+        text += f"<br/><b>Functional groups:</b> {fg_text}"
     return [Paragraph(text, _CAPTION_STY)]
+
+
+def build_ring_planarity_table(
+    ring_planarity_table: list[list],
+    potential_names: list[str],
+) -> list:
+    """Return flowables for the ring planarity deviation table.
+
+    Columns: Ring atoms | n | QM (Å) | Pot1 (Å) | Pot2 (Å) | ...
+    Each cell shows mean±std across conformers.
+    """
+    if not ring_planarity_table:
+        return [Paragraph("<i>No rings detected.</i>", _NOTE_STY)]
+
+    headers = ["Ring atoms", "n"] + ["QM dev (Å)"] + [f"{_trunc(p, 14)} dev (Å)" for p in potential_names]
+    rows = [[str(r[0]), str(r[1])] + [str(c) for c in r[2:]] for r in ring_planarity_table]
+    return _make_compact_table(headers, rows)
 
 
 def build_rmsd_table(
@@ -435,19 +458,21 @@ def build_molecule_page(
     qm_comparison,
     potential_names: list[str],
     mol_label: str = "",
+    fg_text: str | None = None,
 ) -> list:
     """Return a list of reportlab flowables for one molecule page.
 
     Layout (top → bottom):
       header strip  →  molecule image (centered)  →  caption
-      →  RMSD table  →  bond/angle/torsion diff tables  →  PageBreak
+      →  RMSD table  →  ring planarity table
+      →  bond/angle/torsion diff tables  →  PageBreak
     """
     n_conf = getattr(qm_comparison, "n_conformers", 0) if qm_comparison else 0
     label = mol_label or smiles[:30]
 
     story: list = []
     story.extend(build_header(label, n_conf, potential_names))
-    story.extend(build_caption(smiles, qca_ids))
+    story.extend(build_caption(smiles, qca_ids, fg_text=fg_text))
     story.append(Spacer(1, 4))
 
     # Molecule image — centered by wrapping in a full-width single-cell Table
@@ -472,6 +497,14 @@ def build_molecule_page(
     if qm_comparison is not None:
         story.append(Paragraph("<b>RMSD vs QM Reference (Å)</b>", _SUBHDR_STY))
         story.extend(build_rmsd_table(qm_comparison.per_potential, potential_names))
+
+        ring_table = getattr(qm_comparison, "ring_planarity_table", [])
+        if ring_table:
+            story.append(Paragraph(
+                "<b>Ring Planarity Deviation (Å RMSD from best-fit plane) — mean±std across conformers</b>",
+                _SUBHDR_STY,
+            ))
+            story.extend(build_ring_planarity_table(ring_table, potential_names))
 
         story.append(Paragraph(
             "<b>Bond Differences (Å) — above threshold; format: actual±std (mean error, max error)</b>",
@@ -564,6 +597,7 @@ def build_report(
     records,
     qm_results: list,
     potential_names: list[str],
+    fg_matches_per_mol: list | None = None,
 ) -> None:
     """Build the per-molecule benchmark PDF.
 
@@ -581,7 +615,14 @@ def build_report(
         *records*.
     potential_names : list[str]
         Ordered list of potential names matching ``qm_results`` columns.
+    fg_matches_per_mol : list, optional
+        One element per molecule: the output of
+        ``functional_groups.match_and_cache()`` — a list of
+        ``(fg_name, [match_tuples])`` pairs.  Pass ``None`` to omit
+        functional group annotations.
     """
+    from mlip_optimizer.analysis.functional_groups import format_fg_matches
+
     doc = SimpleDocTemplate(
         output_path,
         pagesize=PAGE_SIZE,
@@ -596,6 +637,9 @@ def build_report(
 
     for mol_idx, (rec, qm_comp) in enumerate(zip(records, qm_results)):
         qca_ids = list(getattr(rec, "record_ids", []))
+        fg_text: str | None = None
+        if fg_matches_per_mol is not None and mol_idx < len(fg_matches_per_mol):
+            fg_text = format_fg_matches(fg_matches_per_mol[mol_idx])
         story.extend(
             build_molecule_page(
                 rec.molecule,
@@ -604,6 +648,7 @@ def build_report(
                 qm_comp,
                 potential_names,
                 mol_label=f"mol_{mol_idx}",
+                fg_text=fg_text,
             )
         )
 
