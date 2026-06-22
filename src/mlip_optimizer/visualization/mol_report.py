@@ -185,6 +185,20 @@ def _make_compact_table(
         sub_total = max(sum(sub_pts), 1.0)
         col_widths = [max_w * p / sub_total for p in sub_pts]
 
+        # Enforce a minimum that clears reportlab's default left+right padding
+        # (6 + 6 = 12 pt).  If clamping pushes total over max_w, scale back
+        # the excess from columns that are still above the floor.
+        _MIN_W = 20.0
+        col_widths = [max(w, _MIN_W) for w in col_widths]
+        over = sum(col_widths) - max_w
+        if over > 0:
+            shrinkable = sum(w - _MIN_W for w in col_widths)
+            if shrinkable > 0:
+                col_widths = [
+                    max(_MIN_W, w - (w - _MIN_W) / shrinkable * over)
+                    for w in col_widths
+                ]
+
         hdr_row = [Paragraph(str(headers[ci]), _TH_STY) for ci in col_indices]
 
         def _cell(row: list, ci: int) -> Paragraph:
