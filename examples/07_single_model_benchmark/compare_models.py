@@ -635,6 +635,9 @@ def main(config_path: str | Path) -> None:
             logger.warning("  No valid optimized results for %s.", dataset_name)
             continue
 
+        # Sort so that OpenFF appears first (reference FF), rest alphabetical.
+        potential_names.sort(key=lambda n: (0 if "openff" in n.lower() else 1, n.lower()))
+
         # Set up per-dataset output directory
         output_dir = output_base / dataset_name
         output_dir.mkdir(parents=True, exist_ok=True)
