@@ -279,9 +279,9 @@ def render_molecule_png(molecule) -> bytes:
     w, h = MOL_IMG_PX
     drawer = rdMolDraw2D.MolDraw2DCairo(w, h)
     opts = drawer.drawOptions()
-    opts.annotationFontScale = 0.55
+    opts.annotationFontScale = 0.85
     try:
-        opts.baseFontSize = 0.6
+        opts.baseFontSize = 0.7
     except AttributeError:
         pass
     opts.bondLineWidth = 2

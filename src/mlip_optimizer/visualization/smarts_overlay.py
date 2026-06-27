@@ -116,6 +116,9 @@ def plot_actual_overlay(
 def plot_qm_split_overlay(analysis: dict, metric: str, hierarchy: bool = False) -> None:
     """Plot QM-only value distributions split by SMARTS pattern.
 
+    A light-grey "Full set" violin and histogram (the union of all pattern
+    values) is prepended so the partition can be read against its source pool.
+
     Parameters
     ----------
     analysis : dict
@@ -143,13 +146,18 @@ def plot_qm_split_overlay(analysis: dict, metric: str, hierarchy: bool = False) 
     all_vals = [v for _, vals in pattern_items for v in vals]
     bins = np.linspace(min(all_vals), max(all_vals), 40) if len(all_vals) > 1 and min(all_vals) < max(all_vals) else 10
 
-    violin_data = []
-    violin_labels = []
-    violin_colors = []
+    # Full set = pool of all pattern QM values — plotted first in grey so the
+    # partition can be read against its source distribution.
+    _FULL_CLR = '#CCCCCC'
+    violin_data: list = [all_vals]
+    violin_labels: list = ['Full set']
+    violin_colors: list = [_FULL_CLR]
+    ax_hist.hist(all_vals, bins=bins, color=_FULL_CLR, alpha=0.55,
+                 label='Full set', edgecolor='none', zorder=0)
 
     for idx, (label, vals) in enumerate(pattern_items):
         color = colors[idx % len(colors)]
-        ax_hist.hist(vals, bins=bins, color=color, alpha=0.35, label=label, edgecolor='none')
+        ax_hist.hist(vals, bins=bins, color=color, alpha=0.35, label=label, edgecolor='none', zorder=1)
         violin_data.append(vals)
         violin_labels.append(label)
         violin_colors.append(color)
@@ -296,7 +304,11 @@ def plot_mm_qm_paired_overlay(
     offset = 0.22
     width = 0.38
 
-    fig, ax = plt.subplots(figsize=(max(10, n * 1.5 + 2), 6), dpi=150)
+    # Full set pair: QM and MM pooled across all patterns, shown first in grey.
+    full_qm = [v for _, qm, _ in pattern_items for v in qm]
+    full_mm = [v for _, _, actual in pattern_items for v in actual]
+
+    fig, ax = plt.subplots(figsize=(max(10, (n + 1) * 1.5 + 2), 6), dpi=150)
 
     qm_positions: list[float] = []
     qm_data: list[list] = []
@@ -304,8 +316,16 @@ def plot_mm_qm_paired_overlay(
     mm_data: list[list] = []
     mm_colors: list[str] = []
 
+    if full_qm:
+        qm_positions.append(1 - offset)
+        qm_data.append(full_qm)
+    if full_mm:
+        mm_positions.append(1 + offset)
+        mm_data.append(full_mm)
+        mm_colors.append('mediumpurple')
+
     for i, (label, qm, actual) in enumerate(pattern_items):
-        base = i + 1
+        base = i + 2  # shift right by 1 to leave position 1 for Full set
         if qm:
             qm_positions.append(base - offset)
             qm_data.append(qm)
@@ -337,8 +357,11 @@ def plot_mm_qm_paired_overlay(
                 mm_parts[part_name].set_color('black')
                 mm_parts[part_name].set_linewidth(1.0)
 
-    ax.set_xticks(np.arange(1, n + 1))
-    ax.set_xticklabels([label for label, _, _ in pattern_items], rotation=30, ha='right')
+    ax.set_xticks(np.arange(1, n + 2))
+    ax.set_xticklabels(
+        ['Full set'] + [label for label, _, _ in pattern_items],
+        rotation=30, ha='right',
+    )
     ax.set_ylabel(metric_unit(metric))
     ax.set_xlabel('Pattern')
     ax.grid(axis='y', alpha=0.3)
@@ -347,7 +370,8 @@ def plot_mm_qm_paired_overlay(
     ax.legend(
         handles=[
             Patch(facecolor='silver', edgecolor='gray', alpha=0.7, label='QM'),
-            Patch(facecolor='steelblue', alpha=0.6, label=f'{potential_name} (MM)'),
+            Patch(facecolor='mediumpurple', alpha=0.6, label=f'{potential_name} (MM) — full set'),
+            Patch(facecolor='steelblue', alpha=0.6, label=f'{potential_name} (MM) — per pattern'),
         ],
         fontsize=12, frameon=False,
     )
