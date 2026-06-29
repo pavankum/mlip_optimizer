@@ -263,7 +263,7 @@ def batch_split_all(
     target_width_angle: float = 10.0,
     target_width_bond: float = 0.03,
     ff_error_threshold_angle: float = 5.0,
-    ff_error_threshold_bond: float = 0.1,
+    ff_error_threshold_bond: float = 0.08,
     min_instances: int = 10,
     auto_propose: bool = True,
     validate_proposals: bool = True,
