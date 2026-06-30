@@ -279,12 +279,29 @@ def save_instances(instances: list[InstanceRecord], path: str | Path) -> None:
         json.dump([r.to_dict() for r in instances], fh, indent=2)
 
 
+def append_instances(instances: list[InstanceRecord], path: str | Path) -> None:
+    """Append instances as JSON Lines to a file (creates file if needed).
+
+    Each instance is written as one JSON object per line (JSONL format).
+    Use :func:`load_instances` to read back — it auto-detects JSON vs JSONL.
+    """
+    path = Path(path)
+    with open(path, "a") as fh:
+        for r in instances:
+            fh.write(json.dumps(r.to_dict()) + "\n")
+
+
 def load_instances(
     path: str | Path,
     *,
     reconstruct_rdmol: bool = True,
 ) -> list[InstanceRecord]:
-    """Load instances from a JSON file written by :func:`save_instances`.
+    """Load instances from a file written by :func:`save_instances` or
+    :func:`append_instances`.
+
+    Auto-detects format: a file starting with ``[`` is a JSON array
+    (written by ``save_instances``); otherwise it is treated as JSON Lines
+    (one record per line, written by ``append_instances``).
 
     Parameters
     ----------
@@ -294,5 +311,10 @@ def load_instances(
         loading when only QM values are needed (e.g. for stats).
     """
     with open(path) as fh:
-        data = json.load(fh)
+        first = fh.read(1)
+        fh.seek(0)
+        if first == "[":
+            data = json.load(fh)
+        else:
+            data = [json.loads(line) for line in fh if line.strip()]
     return [InstanceRecord.from_dict(d, reconstruct_rdmol=reconstruct_rdmol) for d in data]
