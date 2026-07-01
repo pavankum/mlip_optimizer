@@ -296,25 +296,108 @@ def load_instances(
     *,
     reconstruct_rdmol: bool = True,
 ) -> list[InstanceRecord]:
-    """Load instances from a file written by :func:`save_instances` or
-    :func:`append_instances`.
+    """Load instances from a file written by :func:`save_instances`,
+    :func:`append_instances`, or the THEMol Step 6 parquet export.
 
-    Auto-detects format: a file starting with ``[`` is a JSON array
-    (written by ``save_instances``); otherwise it is treated as JSON Lines
-    (one record per line, written by ``append_instances``).
+    Auto-detects format by file extension and content:
+
+    - ``.parquet``: columnar format with zstd compression and dictionary-encoded
+      string columns; most compact and fastest for large datasets.
+    - ``.json`` / ``.jsonl`` starting with ``[``: JSON array (``save_instances``).
+    - ``.jsonl`` flat: one :class:`InstanceRecord` dict per line (``append_instances``).
+    - ``.jsonl`` grouped: one molecule per line with a nested ``instances`` list
+      (grouped export format from Step 4/6).
 
     Parameters
     ----------
     reconstruct_rdmol : bool
         Rebuild ``rdmol`` from ``cmiles`` via OpenFF toolkit.  Requires
-        ``openff-toolkit`` to be installed.  Set ``False`` for fast
-        loading when only QM values are needed (e.g. for stats).
+        ``openff-toolkit`` to be installed.  Set ``False`` for fast batch loading
+        when only QM values are needed (e.g. clustering, stats).
     """
+    path = Path(path)
+
+    if path.suffix == ".parquet":
+        import pyarrow.parquet as pq
+
+        table = pq.read_table(path)
+        mol_idxs   = table["mol_idx"].to_pylist()
+        inchi_keys = table["inchi_key"].to_pylist()
+        smiles_col = table["smiles"].to_pylist()
+        cmiles_col = table["cmiles"].to_pylist()
+        atom_keys  = table["atom_key"].to_pylist()    # list of lists
+        qm_vals    = table["qm_values"].to_pylist()   # list of lists
+        qm_means   = table["qm_mean"].to_pylist()
+        param_ids  = (
+            table["param_id"].to_pylist()
+            if "param_id" in table.schema.names
+            else [path.stem.split("_")[0]] * len(mol_idxs)
+        )
+        smirks_col = table["smirks"].to_pylist()
+        del table
+
+        instances: list[InstanceRecord] = []
+        for mol_idx, ik, sm, cm, ak, qv, qm, pid, sk in zip(
+            mol_idxs, inchi_keys, smiles_col, cmiles_col,
+            atom_keys, qm_vals, qm_means, param_ids, smirks_col,
+        ):
+            rdmol = None
+            if reconstruct_rdmol and cm:
+                try:
+                    from openff.toolkit import Molecule as OFFMol
+                    rdmol = OFFMol.from_mapped_smiles(
+                        cm, allow_undefined_stereo=True
+                    ).to_rdkit()
+                except Exception:
+                    pass
+            instances.append(InstanceRecord(
+                mol_idx=int(mol_idx),
+                inchi_key=ik or "",
+                smiles=sm or "",
+                cmiles=cm or "",
+                rdmol=rdmol,
+                atom_key=tuple(int(x) for x in ak),
+                qm_values=tuple(float(x) for x in qv),
+                qm_mean=float(qm),
+                mm_values={},
+                errors={},
+                param_id=pid or "",
+                smirks=sk or "",
+            ))
+        return instances
+
     with open(path) as fh:
         first = fh.read(1)
         fh.seek(0)
         if first == "[":
+            # Legacy JSON array (save_instances)
             data = json.load(fh)
         else:
-            data = [json.loads(line) for line in fh if line.strip()]
+            # JSONL — two sub-formats:
+            #   flat:    one InstanceRecord dict per line  (old)
+            #   grouped: one molecule per line with nested "instances" list (new,
+            #            eliminates repetition of mol-level fields across instances)
+            data = []
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+                if "instances" in obj:
+                    for inst in obj["instances"]:
+                        data.append({
+                            "mol_idx":   obj["mol_idx"],
+                            "inchi_key": obj.get("inchi_key", ""),
+                            "smiles":    obj.get("smiles", ""),
+                            "cmiles":    obj.get("cmiles", ""),
+                            "atom_key":  inst["atom_key"],
+                            "qm_values": inst["qm_values"],
+                            "qm_mean":   inst["qm_mean"],
+                            "mm_values": inst.get("mm_values", {}),
+                            "errors":    inst.get("errors", {}),
+                            "param_id":  obj.get("param_id", ""),
+                            "smirks":    obj.get("smirks", ""),
+                        })
+                else:
+                    data.append(obj)
     return [InstanceRecord.from_dict(d, reconstruct_rdmol=reconstruct_rdmol) for d in data]
