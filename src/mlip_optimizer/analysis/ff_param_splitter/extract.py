@@ -13,11 +13,20 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+# Elements excluded from all ff-param-splitter analysis.
+# Si: 'Si' substring is unambiguous in SMILES (no conflict with S or other symbols).
+#     '\[si' catches aromatic silicon (silole-type rings), which canonical SMILES
+#     writes lowercase and the bare 'Si' branch misses.
+# B:  '\[B(?!r)' matches [B:, [BH:, [B@@H: etc. but not [Br: (bromine).
+#     '\[b' catches aromatic boron.
+_EXCLUDE_RE = re.compile(r"Si|\[si|\[B(?!r)|\[b")
 
 
 @dataclass
@@ -336,6 +345,19 @@ def load_instances(
         smirks_col = table["smirks"].to_pylist()
         del table
 
+        # Exclude Si- and B-containing molecules before the expensive rdmol step.
+        keep = [not _EXCLUDE_RE.search(cm or "") for cm in cmiles_col]
+        if not all(keep):
+            mol_idxs   = [v for v, k in zip(mol_idxs,   keep) if k]
+            inchi_keys = [v for v, k in zip(inchi_keys,  keep) if k]
+            smiles_col = [v for v, k in zip(smiles_col,  keep) if k]
+            cmiles_col = [v for v, k in zip(cmiles_col,  keep) if k]
+            atom_keys  = [v for v, k in zip(atom_keys,   keep) if k]
+            qm_vals    = [v for v, k in zip(qm_vals,     keep) if k]
+            qm_means   = [v for v, k in zip(qm_means,    keep) if k]
+            param_ids  = [v for v, k in zip(param_ids,   keep) if k]
+            smirks_col = [v for v, k in zip(smirks_col,  keep) if k]
+
         instances: list[InstanceRecord] = []
         for mol_idx, ik, sm, cm, ak, qv, qm, pid, sk in zip(
             mol_idxs, inchi_keys, smiles_col, cmiles_col,
@@ -400,4 +422,5 @@ def load_instances(
                         })
                 else:
                     data.append(obj)
+        data = [d for d in data if not _EXCLUDE_RE.search(d.get("cmiles", ""))]
     return [InstanceRecord.from_dict(d, reconstruct_rdmol=reconstruct_rdmol) for d in data]
