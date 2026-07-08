@@ -6,12 +6,21 @@ derived from ``Molecule.from_mapped_smiles(cmiles).to_rdkit()``, the atom
 at index *j* in ``rdmol`` is the same physical atom as index *j* in the
 QM geometry and in the OpenFF FF labeling output.
 
-The four axes, in priority order (matching the methodology):
+The four PRIMARY axes, in priority order (matching the methodology; these are
+graph depth d=0 per ``reference/besmarts_concepts.md`` — only the primary
+mapped atoms :1/:2/:3 themselves, never their neighbors):
 
 1. **Bond order** on each side of the central atom (single/aromatic/double).
 2. **Flanking-atom elements** (atomic symbols of atoms 1 and 3).
 3. **Ring membership + ring size** of the central atom.
 4. **Formal charge** of the central atom.
+
+``depth > 0`` (d=1: one-bond neighbors of the primary atoms; d=2: two-bond)
+adds a fifth, "attachment context" axis — what the flank atoms are themselves
+bonded to, and what the center's non-angle substituents are — via
+:func:`_bfs_shell_elements`. This is Axis 5 / the "second-shell sweep" in
+``reference/methodology.md``, previously done by hand; ``depth`` makes it a
+real, swept parameter instead of prose.
 """
 
 from __future__ import annotations
@@ -93,7 +102,20 @@ class FeatureSet:
         Compact string summary in priority-axis order, usable as a dict key
         and as a human-readable cluster label.
         Format: ``bo_label|elem_label|ring_label|fc_label``
-        Example: ``'s+d|C/N|r6|fc0'``
+        Example: ``'s+d|C/N|r6|fc0'``. When ``depth > 0`` a ``|d{depth}:{sig}``
+        suffix is appended (see *shell_elements*/*center_substituent_elements*),
+        so d=0 grouping is unaffected by depth-aware callers.
+    depth : int
+        Graph depth this FeatureSet was computed at (0 = primary atoms only).
+    shell_elements : tuple[str, ...]
+        Only populated when ``depth > 0``. Sorted, deduped element symbols
+        found by BFS from each flank atom out to *depth* bonds, excluding the
+        primary triple's own atoms — "what are the flank atoms bonded to"
+        (methodology.md Axis 5, BESMARTS d=1/d=2).
+    center_substituent_elements : tuple[str, ...]
+        Only populated when ``depth > 0``. Same BFS, started from the
+        center atom's neighbors that are NOT part of the angle/bond itself —
+        "the center's non-angle substituents" (methodology.md Axis 5).
     """
 
     bond_orders: tuple
@@ -110,6 +132,11 @@ class FeatureSet:
     bo_smarts: tuple = ()         # SMARTS bond chars, same order as bond_orders (unsorted)
     center_valence: int = 0       # X-count (total connections)
     flank_in_ring: tuple = ()     # bool per flank atom
+
+    # Depth-aware attachment-context axis (populated only when depth > 0)
+    depth: int = 0
+    shell_elements: tuple = ()
+    center_substituent_elements: tuple = ()
 
 
 def _make_feature_key(
@@ -129,12 +156,52 @@ def _make_feature_key(
     return f"{bo_part}|{elem_part}|{ring_part}|{fc_part}"
 
 
+def _bfs_shell_elements(
+    rdmol: Chem.Mol,
+    start_idxs: tuple,
+    exclude_idxs: set,
+    depth: int,
+) -> tuple[str, ...]:
+    """BFS out to *depth* bonds from each atom in *start_idxs*, collecting the
+    sorted/deduped element symbols of every atom REACHED (not the start atoms
+    themselves). *exclude_idxs* (the primary :1/:2/:3 atoms) are never
+    traversed into or reported, so this only sees genuinely "outside" atoms —
+    the BESMARTS d=1/d=2 attachment-context axis (methodology.md Axis 5).
+
+    Two call shapes cover both Axis-5 questions:
+    - ``start_idxs=flank_idxs`` → "what are the flank atoms bonded to?"
+    - ``start_idxs=(center_idx,)`` → "what are the center's non-angle
+      substituents?" (``exclude_idxs`` already excludes the flank atoms, so
+      depth=1 from the center lands exactly on its non-angle neighbors).
+    """
+    if depth <= 0:
+        return ()
+    seen_elements: set = set()
+    visited = set(exclude_idxs) | set(start_idxs)
+    frontier = list(start_idxs)
+    for _ in range(depth):
+        next_frontier = []
+        for idx in frontier:
+            for nbr in rdmol.GetAtomWithIdx(idx).GetNeighbors():
+                nidx = nbr.GetIdx()
+                if nidx in visited:
+                    continue
+                visited.add(nidx)
+                seen_elements.add(nbr.GetSymbol())
+                next_frontier.append(nidx)
+        frontier = next_frontier
+        if not frontier:
+            break
+    return tuple(sorted(seen_elements))
+
+
 def featurize_instance(
     rdmol: Chem.Mol,
     atom_key: tuple,
     param_type: str = "angle",
+    depth: int = 0,
 ) -> FeatureSet | None:
-    """Compute the four-axis feature fingerprint for one parameter instance.
+    """Compute the local-chemistry feature fingerprint for one parameter instance.
 
     Parameters
     ----------
@@ -146,6 +213,12 @@ def featurize_instance(
         angles or ``(i, j, k, m)`` for torsions.
     param_type : str
         ``'angle'``, ``'bond'``, or ``'torsion'``.
+    depth : int
+        Graph depth (BESMARTS d). ``0`` (default) computes only the four
+        primary axes — identical output to before this parameter existed.
+        ``> 0`` additionally computes ``shell_elements`` /
+        ``center_substituent_elements`` (Axis 5) and appends a depth-tagged
+        suffix to ``feature_key``, so d=0 and d>0 groupings never collide.
 
     Returns
     -------
@@ -244,6 +317,16 @@ def featurize_instance(
         bo_chars_raw, flank_elements, ring_sizes, center_formal_charge
     )
 
+    shell_elements: tuple = ()
+    center_substituent_elements: tuple = ()
+    if depth > 0:
+        primary_idxs = set(atom_key)
+        shell_elements = _bfs_shell_elements(rdmol, flank_idxs, primary_idxs, depth)
+        center_substituent_elements = _bfs_shell_elements(rdmol, (center_idx,), primary_idxs, depth)
+        shell_sig = "+".join(shell_elements) or "none"
+        sub_sig = "+".join(center_substituent_elements) or "none"
+        feature_key = f"{feature_key}|d{depth}:{shell_sig}/{sub_sig}"
+
     return FeatureSet(
         bond_orders=bond_orders_raw,
         bo_chars=bo_chars_raw,
@@ -257,14 +340,19 @@ def featurize_instance(
         bo_smarts=bo_smarts_raw,
         center_valence=center_valence,
         flank_in_ring=flank_in_ring,
+        depth=depth,
+        shell_elements=shell_elements,
+        center_substituent_elements=center_substituent_elements,
     )
 
 
 def group_by_features(
     instances,
     param_type: str = "angle",
+    depth: int = 0,
 ) -> dict[str, list]:
-    """Group InstanceRecords by their four-axis feature key.
+    """Group InstanceRecords by their feature key (four primary axes, plus
+    the Axis-5 attachment-context signature when ``depth > 0``).
 
     Returns a dict mapping ``feature_key → list[InstanceRecord]``.
     Instances whose rdmol is None or whose atom_key references missing
@@ -272,7 +360,7 @@ def group_by_features(
     """
     groups: dict[str, list] = {}
     for rec in instances:
-        fs = featurize_instance(rec.rdmol, rec.atom_key, param_type)
+        fs = featurize_instance(rec.rdmol, rec.atom_key, param_type, depth=depth)
         if fs is None:
             continue
         groups.setdefault(fs.feature_key, []).append(rec)

@@ -48,6 +48,8 @@ from .extract import (
     extract_param_instances,
     save_instances,
     load_instances,
+    load_combined_instances,
+    sample_themol_prefix,
 )
 from .featurize import (
     FeatureSet,
@@ -72,6 +74,11 @@ from .batch import (
     discover_param_ids,
     batch_split_all,
     print_batch_report,
+    propose_cluster_candidates,
+    _parse_parent_constraints,
+    _elem_from_prim,
+    _primitive_tokens,
+    _is_valid_candidate_subset,
 )
 
 __all__ = [
@@ -80,6 +87,8 @@ __all__ = [
     "extract_param_instances",
     "save_instances",
     "load_instances",
+    "load_combined_instances",
+    "sample_themol_prefix",
     # featurize
     "FeatureSet",
     "featurize_instance",
@@ -100,4 +109,9 @@ __all__ = [
     "discover_param_ids",
     "batch_split_all",
     "print_batch_report",
+    "propose_cluster_candidates",
+    "_parse_parent_constraints",
+    "_elem_from_prim",
+    "_primitive_tokens",
+    "_is_valid_candidate_subset",
 ]

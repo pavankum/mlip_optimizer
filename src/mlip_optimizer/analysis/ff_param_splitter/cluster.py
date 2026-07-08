@@ -91,8 +91,9 @@ def cluster_instances(
     instances,
     param_type: str = "angle",
     target_width: float = 10.0,
+    depth: int = 0,
 ) -> list[ClusterReport]:
-    """Group instances by four-axis chemistry and report per-cluster QM stats.
+    """Group instances by local chemistry and report per-cluster QM stats.
 
     Parameters
     ----------
@@ -103,6 +104,12 @@ def cluster_instances(
     target_width : float
         Bin-width target in native units (° for angles, Å for bonds).
         Clusters exceeding this are flagged ``split_warranted=True``.
+    depth : int
+        Graph depth (BESMARTS d). ``0`` (default) groups by the four primary
+        axes only — unchanged from before this parameter existed. ``> 0``
+        additionally keys on the Axis-5 attachment-context signature
+        (:func:`~.featurize.featurize_instance`), splitting groups that were
+        merged at d=0 into finer sub-populations.
 
     Returns
     -------
@@ -111,14 +118,14 @@ def cluster_instances(
     """
     from .featurize import group_by_features
 
-    groups = group_by_features(instances, param_type)
+    groups = group_by_features(instances, param_type, depth=depth)
 
     reports: list[ClusterReport] = []
     for fkey, group_instances in groups.items():
         # Representative feature set (from first instance that resolves)
         rep_fs: FeatureSet | None = None
         for inst in group_instances:
-            fs = featurize_instance(inst.rdmol, inst.atom_key, param_type)
+            fs = featurize_instance(inst.rdmol, inst.atom_key, param_type, depth=depth)
             if fs is not None:
                 rep_fs = fs
                 break
